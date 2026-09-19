@@ -174,9 +174,13 @@ If this goes quiet, check the Actions tab: re-enabling the workflow is one click
 
 ## Tailored resumes
 
-Mark a row's **Applied** status as **Applying** and the next run renders a
-resume written for that posting and attaches the PDF to the row. Run it on
-demand with the **tailor_resumes** dispatch input, or `--tailor-resumes`.
+Mark a row's **Applied** status as **Applying**. The next scheduled run renders
+a resume written for that posting and attaches the PDF to the row — nothing to
+trigger by hand. Up to `resume_per_run` (default 5) per hour, since each costs a
+model call, a render and an upload.
+
+To do a larger batch immediately, run the workflow with the **tailor_resumes**
+input ticked, which ignores the cap. Locally: `--tailor-resumes`.
 
 `resume/base.yaml` holds the content. Five zones are rewritten per posting and
 nothing else: the tagline, relevant coursework, experience bullets, leadership

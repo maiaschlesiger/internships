@@ -164,5 +164,11 @@ backfill_per_run: 25
 # rather than something every listing receives.
 resume_trigger_status: "Applying"
 
+# Resumes rendered per scheduled run. Mark a row Applying and it gets one within
+# the hour, without triggering anything by hand. Bounded because each costs a
+# model call, a render and an upload; the manual tailor_resumes input ignores
+# this cap. 0 disables the automatic pass.
+resume_per_run: 5
+
 # Set false to skip the Claude adjudication pass entirely (keyword rules only).
 use_model_for_uncertain: true

@@ -100,7 +100,7 @@ def apply_scraped_dates(postings, pages) -> None:
         log.info("posting time taken from the employer's page for %d listings", upgraded)
 
 
-def tailor_resumes(client, database_id: str, cfg: dict) -> int:
+def tailor_resumes(client, database_id: str, cfg: dict, limit: int = 0) -> int:
     """Attach a job-specific resume to each row that is marked as being applied to.
 
     Only rows the user has flagged are touched: tailoring costs a model call and
@@ -119,6 +119,9 @@ def tailor_resumes(client, database_id: str, cfg: dict) -> int:
     if not rows:
         log.info("no rows are waiting for a resume")
         return 0
+    if limit and len(rows) > limit:
+        log.info("%d rows waiting; taking %d this run", len(rows), limit)
+        rows = rows[:limit]
 
     # The stored Skill Requirements are the posting's own words, so they make a
     # good tailoring brief without re-fetching the page. Re-fetch only when the
@@ -371,6 +374,16 @@ def main(argv=None) -> int:
     per_run = cfg.get("backfill_per_run", 0)
     if per_run:
         backfill(client, database_id, cfg, limit=per_run)
+
+    # Anything marked Applying since the last run gets its resume without being
+    # asked for. Bounded per run: each one costs a model call, a render and an
+    # upload, and a surprise batch of fifty is not a pleasant discovery.
+    resumes = cfg.get("resume_per_run", 0)
+    if resumes:
+        try:
+            tailor_resumes(client, database_id, cfg, limit=resumes)
+        except Exception as exc:  # noqa: BLE001 - never lose a scrape over a resume
+            log.error("resume pass failed: %s", exc)
     return 0
 
 
