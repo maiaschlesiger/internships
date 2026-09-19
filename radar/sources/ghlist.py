@@ -180,6 +180,14 @@ def _row_to_posting(cells: List[str], cfg: dict, repo: str,
     if ADVANCED_DEGREE in raw_title:
         return None, last_company
 
+    # These glyphs carry real eligibility information. They were being stripped
+    # by _plain and thrown away; keep them as notes instead.
+    flags = []
+    if NO_SPONSORSHIP in raw_title or NO_SPONSORSHIP in raw_company:
+        flags.append("No visa sponsorship")
+    if US_CITIZEN in raw_title or US_CITIZEN in raw_company:
+        flags.append("US citizenship required")
+
     apply_url = canonical_url(_first_href(cells[cols["apply"]]))
     identity_url = "" if cfg.get("redirector") else apply_url
     posted = parse_age(cells[cols["age"]], now)
@@ -194,6 +202,7 @@ def _row_to_posting(cells: List[str], cfg: dict, repo: str,
         location=_plain(cells[cols["location"]]),
         posted_at=posted,
         posted_precision="day" if posted else "unknown",
+        notes=" \u00b7 ".join(flags),
     ), last_company
 
 

@@ -43,6 +43,9 @@ class Posting:
     resume_keywords: List[str] = field(default_factory=list)
     skills: List[str] = field(default_factory=list)
     recruiter: str = ""
+    # Short labelled facts worth knowing before applying: pay, deadline,
+    # sponsorship, programme length. Never inferred -- see jobdesc.extract_notes.
+    notes: str = ""
 
     def keywords_cell(self) -> str:
         return ", ".join(self.resume_keywords)

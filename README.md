@@ -109,6 +109,11 @@ Generate a key in Apollo under **Settings → Integrations → API**.
 
 ## Columns
 
+Columns are added to an existing database automatically. A database created by
+an older version is missing newer columns, so each run checks and adds what it
+needs. Only additions are made — nothing is renamed or removed, and columns you
+added yourself are left alone.
+
 | Column | Notes |
 |---|---|
 | Title / Company / Location | from the source table |
@@ -120,6 +125,7 @@ Generate a key in Apollo under **Settings → Integrations → API**.
 | Recruiter Contact | the address printed in the posting; Apollo only fills gaps |
 | Applied | select: Not applied / Applying / Applied / Interviewing / Offer / Rejected |
 | My Resume PDF | empty files property — drag your tailored PDF onto the row |
+| Notes | pay, deadline, programme length, GPA cut-off, sponsorship and citizenship flags — all quoted from the posting or the source list, never inferred |
 | Term / Category / Source / Job ID | Job ID is the dedup key; don't delete that column |
 
 ### Where the posting time comes from

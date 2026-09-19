@@ -24,7 +24,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from html.parser import HTMLParser
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Dict, Optional, Sequence, Tuple
+from typing import Dict, List, Optional, Sequence, Tuple
 
 import requests
 
@@ -280,6 +280,87 @@ def extract_contact_emails(html: str) -> str:
     return best_generic
 
 
+# Facts worth knowing before deciding whether to spend an evening applying.
+# Each returns a short label; none of them guess.
+PAY_RANGE_RE = re.compile(
+    r"\$\s?\d{1,3}(?:,\d{3})*(?:\.\d{2})?\s*(?:-|\u2013|\u2014|to)\s*\$?\s?\d{1,3}(?:,\d{3})*(?:\.\d{2})?")
+PAY_RATE_RE = re.compile(
+    r"\$\s?\d{1,3}(?:,\d{3})*(?:\.\d{2})?\s*(?:/|\s*per\s+)(?:hour|hr|month|mo|year|yr|annum)", re.I)
+DEADLINE_RE = re.compile(
+    r"(?:appl(?:y|ications?)\s+(?:by|close[sd]?|deadline)|deadline(?:\s+is)?|"
+    r"closes?\s+on)[^.\n]{0,50}?"
+    r"(\d{1,2}/\d{1,2}/\d{2,4}|"
+    r"(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+\d{1,2}(?:,?\s*20\d\d)?)", re.I)
+DURATION_RE = re.compile(r"\b(\d{1,2})[\s-]*(?:week|month)s?\b(?!\s*(?:of|notice))", re.I)
+GPA_RE = re.compile(r"(?:minimum\s+)?(?:GPA|grade point average)[^.\n]{0,24}?(\d\.\d{1,2})|"
+                    r"(\d\.\d{1,2})\s*(?:GPA|or higher GPA)", re.I)
+
+NOTE_PHRASES = (
+    ("No visa sponsorship", ("not able to sponsor", "unable to sponsor",
+                             "no sponsorship", "does not offer sponsorship",
+                             "will not sponsor", "not provide sponsorship",
+                             "not offer visa")),
+    ("US work authorization required", ("authorized to work in the united states",
+                                        "must be authorized to work",
+                                        "legally authorized to work")),
+    ("US citizenship required", ("must be a u.s. citizen", "u.s. citizenship is required",
+                                 "us citizenship required", "united states citizen")),
+    ("Security clearance", ("security clearance", "able to obtain a clearance")),
+    ("Relocation or housing support", ("relocation assistance", "housing stipend",
+                                       "corporate housing", "relocation package",
+                                       "housing is provided")),
+    ("Return offer possible", ("return offer", "full-time offer upon",
+                               "conversion to full-time")),
+    ("Remote", ("fully remote", "100% remote", "remote-first")),
+)
+
+
+def extract_notes(text: str, extra: Optional[Sequence[str]] = None,
+                  max_chars: int = 400) -> str:
+    """Pull out the details worth knowing before applying.
+
+    Pay, deadline, programme length, GPA cut-off, and flags like sponsorship or
+    clearance. Everything here is quoted or labelled from the posting; nothing
+    is inferred. ``extra`` carries notes the source list already knew, such as
+    the sponsorship glyphs the community lists use.
+    """
+    notes: List[str] = list(extra or [])
+    if text:
+        low = text.lower()
+
+        pay = PAY_RANGE_RE.search(text) or PAY_RATE_RE.search(text)
+        if pay:
+            notes.append("Pay: " + re.sub(r"\s+", " ", pay.group(0)).strip())
+
+        deadline = DEADLINE_RE.search(text)
+        if deadline:
+            notes.append("Deadline: " + deadline.group(1).strip())
+
+        duration = DURATION_RE.search(text)
+        if duration:
+            unit = "week" if "week" in duration.group(0).lower() else "month"
+            notes.append(f"{duration.group(1)}-{unit} programme")
+
+        gpa = GPA_RE.search(text)
+        if gpa:
+            notes.append("GPA " + (gpa.group(1) or gpa.group(2)))
+
+        for label, phrases in NOTE_PHRASES:
+            if any(phrase in low for phrase in phrases):
+                notes.append(label)
+
+    # Preserve order, drop repeats.
+    seen, out = set(), []
+    for note in notes:
+        key = note.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(note)
+    joined = " · ".join(out)
+    return joined[:max_chars].rstrip(" ·")
+
+
 @dataclass
 class PageData:
     """What one fetch of an application page yielded."""
@@ -288,6 +369,7 @@ class PageData:
     posted_precision: str = "unknown"
     requirements: str = ""
     contact_email: str = ""
+    notes: str = ""
 
 
 def fetch_one(url: str, session: requests.Session, timeout: int = 20,
@@ -309,7 +391,8 @@ def fetch_one(url: str, session: requests.Session, timeout: int = 20,
                     when, precision = extract_posted_at(resp.text)
                     plain = html_to_text(body)[:max_chars]
                     return PageData(plain, when, precision, extract_requirements(plain),
-                                    extract_contact_emails(resp.text))
+                                    extract_contact_emails(resp.text),
+                                    extract_notes(plain))
         except (requests.RequestException, json.JSONDecodeError, AttributeError):
             pass  # fall through to the HTML path
 
@@ -334,7 +417,7 @@ def fetch_one(url: str, session: requests.Session, timeout: int = 20,
         text = ""
     text = text[:max_chars]
     return PageData(text, when, precision, extract_requirements(text),
-                    extract_contact_emails(html))
+                    extract_contact_emails(html), extract_notes(text))
 
 
 def fetch_all(postings: Sequence[Posting], max_chars: int = 6000,

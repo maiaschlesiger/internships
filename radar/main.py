@@ -119,10 +119,12 @@ def backfill(client, database_id: str, cfg: dict, limit: int = 0) -> int:
             continue
         skills = data.requirements if row["needs_skills"] else ""
         recruiter = data.contact_email if row["needs_recruiter"] else ""
-        if not skills and not recruiter:
+        notes = data.notes if row.get("needs_notes") else ""
+        if not skills and not recruiter and not notes:
             continue
         try:
-            client.update_row(row["page_id"], skills=skills, recruiter=recruiter)
+            client.update_row(row["page_id"], skills=skills,
+                              recruiter=recruiter, notes=notes)
             updated += 1
         except Exception as exc:  # noqa: BLE001 - one bad row must not lose the rest
             log.error("could not update %r: %s", row["title"][:40], exc)
@@ -142,6 +144,20 @@ def apply_scraped_emails(postings, pages) -> None:
             filled += 1
     if filled:
         log.info("contact email taken from the posting for %d listings", filled)
+
+
+def apply_scraped_notes(postings, pages) -> None:
+    """Merge notes found on the page with any the source list already supplied."""
+    for p in postings:
+        data = pages.get(p.job_id)
+        if not data or not data.notes:
+            continue
+        if p.notes:
+            extra = [n for n in data.notes.split(" \u00b7 ") if n not in p.notes]
+            if extra:
+                p.notes = p.notes + " \u00b7 " + " \u00b7 ".join(extra)
+        else:
+            p.notes = data.notes
 
 
 def jobdesc_rank(precision: str) -> int:
@@ -204,7 +220,9 @@ def main(argv=None) -> int:
         if args.dry_run:
             log.error("--backfill and --dry-run are contradictory; doing nothing")
             return 2
-        return backfill(Notion(token), database_id, cfg)
+        client = Notion(token)
+        client.ensure_schema(database_id)
+        return backfill(client, database_id, cfg)
 
     if args.clear_database:
         if args.dry_run:
@@ -217,6 +235,9 @@ def main(argv=None) -> int:
     # Dedup against what is already in Notion before spending anything.
     if not args.dry_run:
         client = Notion(token)
+        # A database created by an older version lacks newer columns; writing to
+        # a property Notion does not know about fails the whole page.
+        client.ensure_schema(database_id)
         known_ids, known_prints = client.existing_keys(database_id)
         before = len(postings)
         postings = [p for p in postings
@@ -247,6 +268,7 @@ def main(argv=None) -> int:
         )
         apply_scraped_dates(postings, pages)
         apply_scraped_emails(postings, pages)
+        apply_scraped_notes(postings, pages)
 
     enrich.enrich(postings, cfg, pages)
     apollo.find_recruiters(postings, max_lookups=cfg.get("apollo_max_lookups", 0))

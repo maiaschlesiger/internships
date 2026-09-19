@@ -338,6 +338,72 @@ class TestRequirementsExtraction(unittest.TestCase):
         self.assertTrue(out.endswith("..."))
 
 
+class TestNotesExtraction(unittest.TestCase):
+    POSTING = ("This is a 12-week program based in New York.\n"
+               "The hourly pay range is $45.00 - $55.00 per hour.\n"
+               "Applications close October 31, 2026.\n"
+               "Minimum GPA of 3.2 required.\n"
+               "Candidates must be authorized to work in the United States; "
+               "we are unable to sponsor visas.\n"
+               "High performers may receive a return offer.\n"
+               "Relocation assistance is available.\n")
+
+    def test_finds_pay_deadline_duration_and_gpa(self):
+        out = jobdesc.extract_notes(self.POSTING)
+        self.assertIn("$45.00", out)
+        self.assertIn("October 31, 2026", out)
+        self.assertIn("12-week", out)
+        self.assertIn("3.2", out)
+
+    def test_flags_sponsorship_and_perks(self):
+        out = jobdesc.extract_notes(self.POSTING)
+        self.assertIn("No visa sponsorship", out)
+        self.assertIn("Relocation or housing support", out)
+        self.assertIn("Return offer possible", out)
+
+    def test_merges_list_flags_without_duplicating(self):
+        out = jobdesc.extract_notes(self.POSTING, extra=["No visa sponsorship"])
+        self.assertEqual(out.count("No visa sponsorship"), 1)
+
+    def test_flags_alone_survive_with_no_description(self):
+        self.assertEqual(jobdesc.extract_notes("", extra=["US citizenship required"]),
+                         "US citizenship required")
+
+    def test_posting_with_nothing_notable_returns_empty(self):
+        self.assertEqual(jobdesc.extract_notes("We are a company that does things."), "")
+        self.assertEqual(jobdesc.extract_notes(""), "")
+
+    def test_output_is_capped(self):
+        noisy = self.POSTING * 6
+        self.assertLessEqual(len(jobdesc.extract_notes(noisy, max_chars=120)), 120)
+
+
+class TestListEligibilityFlags(unittest.TestCase):
+    """The lists' sponsorship glyphs were stripped and lost; keep them as notes."""
+
+    def test_no_sponsorship_glyph_becomes_a_note(self):
+        md = ("| Company | Role | Location | Link | Date Posted |\n"
+              "| --- | --- | --- | --- | --- |\n"
+              "| Acme | PM Intern \U0001F6C2 | NY | <a href=\"https://x.com/1\">a</a> | 0d |\n")
+        rows = ghlist.parse(md, ghlist.REPOS["vanshb03/Summer2027-Internships"], "t")
+        self.assertEqual(rows[0].notes, "No visa sponsorship")
+        self.assertNotIn("\U0001F6C2", rows[0].title)
+
+    def test_citizenship_glyph_becomes_a_note(self):
+        md = ("| Company | Role | Location | Link | Date Posted |\n"
+              "| --- | --- | --- | --- | --- |\n"
+              "| Acme | PM Intern \U0001F1FA\U0001F1F8 | NY | <a href=\"https://x.com/1\">a</a> | 0d |\n")
+        rows = ghlist.parse(md, ghlist.REPOS["vanshb03/Summer2027-Internships"], "t")
+        self.assertEqual(rows[0].notes, "US citizenship required")
+
+    def test_unflagged_row_has_no_notes(self):
+        md = ("| Company | Role | Location | Link | Date Posted |\n"
+              "| --- | --- | --- | --- | --- |\n"
+              "| Acme | PM Intern | NY | <a href=\"https://x.com/1\">a</a> | 0d |\n")
+        rows = ghlist.parse(md, ghlist.REPOS["vanshb03/Summer2027-Internships"], "t")
+        self.assertEqual(rows[0].notes, "")
+
+
 class TestContactEmailExtraction(unittest.TestCase):
     def test_prefers_a_hiring_inbox_over_a_generic_one(self):
         html = "<p>press@acme.com</p><p>universityrecruiting@acme.com</p>"

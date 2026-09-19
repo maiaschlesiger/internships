@@ -40,6 +40,7 @@ P_APPLIED = "Applied"
 P_RESUME = "My Resume PDF"
 P_SOURCE = "Source"
 P_JOB_ID = "Job ID"
+P_NOTES = "Notes"
 
 APPLIED_OPTIONS = [
     {"name": "Not applied", "color": "default"},
@@ -68,6 +69,7 @@ SCHEMA = {
     P_RESUME: {"files": {}},
     P_SOURCE: {"select": {}},
     P_JOB_ID: {"rich_text": {}},
+    P_NOTES: {"rich_text": {}},
 }
 
 
@@ -188,6 +190,23 @@ class Notion:
         log.info("archived %d/%d rows", removed, len(ids))
         return removed
 
+    def ensure_schema(self, database_id: str) -> List[str]:
+        """Add any columns this code expects that the database does not have.
+
+        A database created by an older version is missing newer columns, and
+        writing to a property Notion does not know about fails the whole page.
+        Only additions are made -- nothing existing is renamed or removed, so
+        columns you added yourself are safe.
+        """
+        db = self._call("GET", f"/databases/{database_id}")
+        have = set(db.get("properties", {}))
+        missing = {name: spec for name, spec in SCHEMA.items() if name not in have}
+        if not missing:
+            return []
+        self._call("PATCH", f"/databases/{database_id}", json={"properties": missing})
+        log.info("added missing columns: %s", ", ".join(sorted(missing)))
+        return sorted(missing)
+
     def rows_to_backfill(self, database_id: str, limit: int = 0) -> List[dict]:
         """Existing rows that are missing data a re-fetch could supply.
 
@@ -211,13 +230,14 @@ class Notion:
                 props = row.get("properties", {})
                 skills = _plain_text(props.get(P_SKILLS, {}).get("rich_text", []))
                 recruiter = props.get(P_RECRUITER, {}).get("email") or ""
+                notes = _plain_text(props.get(P_NOTES, {}).get("rich_text", []))
                 url = props.get(P_PORTAL, {}).get("url") or ""
                 # Placeholders past and present. Rows holding one are treated as
                 # missing so a later backfill can still fill them.
                 needs_skills = (not skills) or skills.startswith((
                     "See posting", "Could not read", "Inferred from",
                     "See listing", "Description fetched"))
-                if not url or not (needs_skills or not recruiter):
+                if not url or not (needs_skills or not recruiter or not notes):
                     continue
                 out.append({
                     "page_id": row["id"],
@@ -226,6 +246,7 @@ class Notion:
                     "company": _plain_text(props.get(P_COMPANY, {}).get("rich_text", [])),
                     "needs_skills": needs_skills,
                     "needs_recruiter": not recruiter,
+                    "needs_notes": not notes,
                 })
                 if limit and len(out) >= limit:
                     log.info("%d rows queued for backfill (capped)", len(out))
@@ -236,7 +257,8 @@ class Notion:
         log.info("%d existing rows could be backfilled", len(out))
         return out
 
-    def update_row(self, page_id: str, skills: str = "", recruiter: str = "") -> None:
+    def update_row(self, page_id: str, skills: str = "", recruiter: str = "",
+                   notes: str = "") -> None:
         """Patch only the named fields.
 
         Everything else on the row is left alone -- crucially the Applied tag
@@ -249,6 +271,9 @@ class Notion:
                                               "text": {"content": skills[:2000]}}]}
         if recruiter:
             props[P_RECRUITER] = {"email": recruiter}
+        if notes:
+            props[P_NOTES] = {"rich_text": [{"type": "text",
+                                             "text": {"content": notes[:2000]}}]}
         if not props:
             return
         self._call("PATCH", f"/pages/{page_id}", json={"properties": props})
@@ -268,6 +293,7 @@ class Notion:
                 {"name": k.replace(",", " ")[:100]} for k in p.resume_keywords[:25]
             ]},
             P_APPLIED: {"select": {"name": "Not applied"}},
+            P_NOTES: rt(p.notes),
         }
         if p.category:
             props[P_CATEGORY] = {"select": {"name": p.category[:100]}}
