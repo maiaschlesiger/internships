@@ -159,5 +159,10 @@ apollo_max_lookups: 15
 # dispatch input ignores this cap and sweeps everything.
 backfill_per_run: 25
 
+# Rows with this Applied status get a tailored resume rendered and attached.
+# Tailoring costs a model call and a render per posting, so it is opt-in per row
+# rather than something every listing receives.
+resume_trigger_status: "Applying"
+
 # Set false to skip the Claude adjudication pass entirely (keyword rules only).
 use_model_for_uncertain: true

@@ -172,6 +172,35 @@ GitHub **disables scheduled workflows in a repository with no pushes for 60
 days**, and delays `schedule` runs under load — an hourly cron can drift or skip.
 If this goes quiet, check the Actions tab: re-enabling the workflow is one click.
 
+## Tailored resumes
+
+Mark a row's **Applied** status as **Applying** and the next run renders a
+resume written for that posting and attaches the PDF to the row. Run it on
+demand with the **tailor_resumes** dispatch input, or `--tailor-resumes`.
+
+`resume/base.yaml` holds the content. Five zones are rewritten per posting and
+nothing else: the tagline, relevant coursework, experience bullets, leadership
+bullets, and the skills lines. Section order, the roles, their dates and
+employers, the number of bullets under each, and the recognition line are fixed.
+
+Those limits are **enforced, not requested**. After the model answers,
+`tailor.validate` rejects a variant that changes the shape, lists a course
+outside `courses_available`, claims a skill outside `skills_available`, alters
+the recognition line, or writes a bullet long enough to push the page to two. A
+rejected variant falls back to the base resume — an untailored resume beats a
+misshapen one.
+
+It rewords and reweights what the base resume already says. It does not invent
+employers, projects, metrics or tools, because a resume that overstates gets
+found out in the interview it wins. Add new material to `base.yaml` yourself and
+tailoring can start using it.
+
+Rendering is headless Chromium against `radar/resume/template.html`. Only text is
+substituted, so a bad model response cannot alter the layout. See
+`resume/fonts/README.md` for making the output pixel-identical to the original.
+
+Needs `ANTHROPIC_API_KEY`; without it every row gets the base resume unchanged.
+
 ## Sources
 
 Seven lists, all cross-deduplicated against each other:

@@ -17,6 +17,7 @@ from radar.sources import internlist  # noqa: E402
 from radar.sources.jobright import parse_readme  # noqa: E402
 from radar import dedupe, enrich, jobdesc  # noqa: E402
 from radar.sources import ghlist  # noqa: E402
+from radar.resume import tailor as rtailor  # noqa: E402
 
 CFG = yaml.safe_load((Path(__file__).resolve().parent.parent / "config.yaml").read_text())
 
@@ -570,6 +571,98 @@ class TestPostedAtScraping(unittest.TestCase):
     def test_no_date_returns_none(self):
         self.assertEqual(jobdesc.extract_posted_at("<html>nothing</html>"),
                          (None, "unknown"))
+
+
+class TestResumeTailoringGuardrails(unittest.TestCase):
+    """The structure rules are enforced after the model answers, not just asked for."""
+
+    @classmethod
+    def setUpClass(cls):
+        import yaml as _yaml
+        path = Path(__file__).resolve().parent.parent / "resume" / "base.yaml"
+        cls.base = _yaml.safe_load(path.read_text())
+
+    def _variant(self, **over):
+        import copy
+        b = self.base
+        v = {"tagline": list(b["tagline"]),
+             "coursework": list(b["education"]["coursework"]),
+             "experience": [{"org": r["org"], "bullets": list(r["bullets"])}
+                            for r in b["experience"]],
+             "leadership": [{"org": r["org"], "bullets": list(r["bullets"])}
+                            for r in b["leadership"]],
+             "skills": copy.deepcopy(b["skills"])}
+        v.update(over)
+        return v
+
+    def test_unchanged_variant_is_accepted(self):
+        ok, problems = rtailor.validate(self.base, self._variant())
+        self.assertTrue(ok, problems)
+
+    def test_rejects_adding_a_bullet(self):
+        v = self._variant()
+        v["experience"][0]["bullets"].append("An extra invented achievement.")
+        self.assertFalse(rtailor.validate(self.base, v)[0])
+
+    def test_rejects_dropping_a_role(self):
+        v = self._variant()
+        v["experience"] = v["experience"][:-1]
+        self.assertFalse(rtailor.validate(self.base, v)[0])
+
+    def test_rejects_renaming_an_employer(self):
+        v = self._variant()
+        v["experience"][0]["org"] = "Google"
+        self.assertFalse(rtailor.validate(self.base, v)[0])
+
+    def test_rejects_a_course_she_has_not_taken(self):
+        v = self._variant(coursework=["Quantum Computing", "Artificial Intelligence",
+                                      "Game Development"])
+        self.assertFalse(rtailor.validate(self.base, v)[0])
+
+    def test_rejects_a_skill_she_does_not_have(self):
+        v = self._variant()
+        v["skills"]["Technical"] = v["skills"]["Technical"] + ["Kubernetes"]
+        self.assertFalse(rtailor.validate(self.base, v)[0])
+
+    def test_rejects_altering_the_recognition_line(self):
+        v = self._variant()
+        v["skills"]["Recognition"] = ["Nobel Prize"]
+        self.assertFalse(rtailor.validate(self.base, v)[0])
+
+    def test_rejects_bullets_that_would_reflow_the_page(self):
+        v = self._variant()
+        v["experience"][0]["bullets"][0] = "Led product."
+        self.assertFalse(rtailor.validate(self.base, v)[0])
+        v2 = self._variant()
+        v2["experience"][0]["bullets"][0] = self.base["experience"][0]["bullets"][0] * 2
+        self.assertFalse(rtailor.validate(self.base, v2)[0])
+
+    def test_accepts_reordering_and_permitted_additions(self):
+        v = self._variant()
+        v["skills"]["Design"] = ["Figma", "prototyping", "wireframing", "design systems"]
+        v["coursework"] = ["Introduction to Algorithms", "Discrete Structures",
+                           "Artificial Intelligence"]
+        ok, problems = rtailor.validate(self.base, v)
+        self.assertTrue(ok, problems)
+
+    def test_apply_variant_leaves_structure_untouched(self):
+        v = self._variant(tagline=["product management", "ux research", "ai"])
+        out = rtailor.apply_variant(self.base, v)
+        self.assertEqual(len(out["experience"]), len(self.base["experience"]))
+        self.assertEqual([r["when"] for r in out["experience"]],
+                         [r["when"] for r in self.base["experience"]])
+        self.assertEqual(out["tagline"], ["PRODUCT MANAGEMENT", "UX RESEARCH", "AI"])
+
+    def test_no_api_key_falls_back_to_the_base_resume(self):
+        import os
+        saved = os.environ.pop("ANTHROPIC_API_KEY", None)
+        try:
+            content, note = rtailor.tailor(self.base, {"title": "PM Intern"})
+            self.assertEqual(content, self.base)
+            self.assertIn("not tailored", note)
+        finally:
+            if saved:
+                os.environ["ANTHROPIC_API_KEY"] = saved
 
 
 if __name__ == "__main__":

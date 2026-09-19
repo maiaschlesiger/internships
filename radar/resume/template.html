@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html><head><meta charset="utf-8">
+<style>
+  /* Helvetica Neue is not redistributable, so it is not committed here. Drop
+     your own copies into resume/fonts/ and the output matches the original
+     exactly; without them the layout is identical but the letterforms differ.
+     See the README. */
+  @font-face { font-family: "HN"; font-weight: 400;
+               src: url("fonts/HelveticaNeue.ttf") format("truetype"); }
+  @font-face { font-family: "HN"; font-weight: 500;
+               src: url("fonts/HelveticaNeue-Medium.ttf") format("truetype"); }
+  @font-face { font-family: "HN"; font-weight: 700;
+               src: url("fonts/HelveticaNeue-Bold.ttf") format("truetype"); }
+
+  @page { size: 8.5in 11in; margin: 0; }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: "HN", "Helvetica Neue", Helvetica, "Liberation Sans", Arial, sans-serif;
+    font-size: 9.9pt; line-height: 1.34; color: #000;
+    padding: 28pt 40pt 20pt 40pt; width: 8.5in; height: 11in;
+    -webkit-font-smoothing: antialiased;
+  }
+  .name { font-size: 24.8pt; font-weight: 700; letter-spacing: -0.4pt; line-height: 1.1; }
+  .tagline { font-size: 8.6pt; font-weight: 500; letter-spacing: 0.9pt;
+             margin-top: 3pt; text-transform: uppercase; }
+  .contact { font-size: 8.6pt; font-weight: 400; margin-top: 4pt; color: #222; }
+
+  .rule { font-size: 8.2pt; font-weight: 700; letter-spacing: 2.6pt;
+          margin-top: 9.5pt; margin-bottom: 3pt; text-transform: uppercase; }
+
+  .entry { margin-top: 4.5pt; }
+  .entry:first-of-type { margin-top: 0; }
+  .head { font-size: 10.5pt; font-weight: 700; display: flex;
+          justify-content: space-between; align-items: baseline; gap: 10pt; }
+  .head .meta { font-weight: 400; font-size: 9.2pt; white-space: nowrap; }
+  /* Hanging indent with the bullet as real inline text. An absolutely
+     positioned ::before marker renders identically but reorders the PDF's text
+     stream, which detaches every bullet from its job heading when an applicant
+     tracking system extracts the text. */
+  ul { list-style: none; margin-top: 1pt; }
+  li { padding-left: 11pt; text-indent: -9pt; margin-top: 0.5pt; }
+
+  .edu { font-size: 10.5pt; font-weight: 700; display: flex;
+         justify-content: space-between; align-items: baseline; }
+  .edu .meta { font-weight: 400; font-size: 9.2pt; }
+  .course { margin-top: 1pt; }
+  .skill { margin-top: 1.5pt; }
+  .skill b { font-weight: 700; }
+</style></head>
+<body>
+  <div class="name">__NAME__</div>
+  <div class="tagline">__TAGLINE__</div>
+  <div class="contact">__CONTACT__</div>
+
+  <div class="rule">Education</div>
+  <div class="edu"><span>__SCHOOL__ &middot; __DEGREE__</span><span class="meta">__GRAD__</span></div>
+  <div class="course">Relevant Coursework: __COURSEWORK__</div>
+
+  <div class="rule">Experience</div>
+  __EXPERIENCE__
+
+  <div class="rule">Leadership</div>
+  __LEADERSHIP__
+
+  <div class="rule">Additional Skills</div>
+  __SKILLS__
+</body></html>

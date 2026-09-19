@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import logging
 import time
+from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Sequence, Set, Tuple
 
 import requests
@@ -41,6 +42,7 @@ P_RESUME = "My Resume PDF"
 P_SOURCE = "Source"
 P_JOB_ID = "Job ID"
 P_NOTES = "Notes"
+P_RESUME = "My Resume PDF"
 
 APPLIED_OPTIONS = [
     {"name": "Not applied", "color": "default"},
@@ -168,6 +170,69 @@ class Notion:
                 break
             cursor = page.get("next_cursor")
         return ids
+
+    def rows_awaiting_resume(self, database_id: str, status: str = "Applying") -> List[dict]:
+        """Rows whose Applied status asks for a tailored resume and have none yet."""
+        out: List[dict] = []
+        cursor: Optional[str] = None
+        while True:
+            body = {"page_size": 100,
+                    "filter": {"property": P_APPLIED, "select": {"equals": status}}}
+            if cursor:
+                body["start_cursor"] = cursor
+            page = self._call("POST", f"/databases/{database_id}/query", json=body)
+            for row in page.get("results", []):
+                props = row.get("properties", {})
+                if props.get(P_RESUME, {}).get("files"):
+                    continue  # already has one attached
+                out.append({
+                    "page_id": row["id"],
+                    "title": _plain_text(props.get(P_TITLE, {}).get("title", [])),
+                    "company": _plain_text(props.get(P_COMPANY, {}).get("rich_text", [])),
+                    "category": (props.get(P_CATEGORY, {}).get("select") or {}).get("name", ""),
+                    "url": props.get(P_PORTAL, {}).get("url") or "",
+                    "skills": _plain_text(props.get(P_SKILLS, {}).get("rich_text", [])),
+                    "keywords": [o.get("name", "") for o in
+                                 props.get(P_KEYWORDS, {}).get("multi_select", [])],
+                })
+            if not page.get("has_more"):
+                break
+            cursor = page.get("next_cursor")
+        log.info("%d rows marked %r are awaiting a resume", len(out), status)
+        return out
+
+    def attach_file(self, page_id: str, path, property_name: str = P_RESUME) -> None:
+        """Upload a local file to Notion and attach it to a page property.
+
+        Three steps: reserve an upload, send the bytes as multipart, then
+        reference the upload id from the property. Notion discards an upload
+        that is not attached within the hour, so these happen together.
+        """
+        path = Path(path)
+        created = self._call("POST", "/file_uploads", json={
+            "filename": path.name, "content_type": "application/pdf"})
+        upload_id = created["id"]
+
+        # The send step is multipart, so the session's JSON content type must
+        # not be applied -- requests sets its own boundary header.
+        headers = {k: v for k, v in self.s.headers.items() if k != "Content-Type"}
+        with path.open("rb") as fh:
+            resp = requests.post(
+                f"{API}/file_uploads/{upload_id}/send",
+                headers=headers,
+                files={"file": (path.name, fh, "application/pdf")},
+                timeout=120,
+            )
+        if not resp.ok:
+            raise RuntimeError(f"Notion upload send failed {resp.status_code}: {resp.text[:300]}")
+
+        self._call("PATCH", f"/pages/{page_id}", json={"properties": {
+            property_name: {"files": [{
+                "type": "file_upload",
+                "file_upload": {"id": upload_id},
+                "name": path.name,
+            }]}}})
+        log.info("attached %s to %s", path.name, page_id)
 
     def clear(self, database_id: str) -> int:
         """Empty the database.

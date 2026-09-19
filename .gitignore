@@ -2,3 +2,5 @@ probe-output/
 __pycache__/
 *.pyc
 .env
+resume/fonts/*.ttf
+resume/fonts/*.ttc

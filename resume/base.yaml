@@ -1,0 +1,117 @@
+# Your resume's content. The STRUCTURE here is fixed: sections, their order, the
+# number of roles and the number of bullets under each are never changed by
+# tailoring. Only the fields marked EDITABLE are rewritten per job posting.
+#
+# Everything a tailored variant says must be supportable by what is written
+# here. Tailoring reweights and rewords; it does not invent.
+
+name: "Maia Schlesiger"
+
+# EDITABLE - the three positioning phrases under the name.
+tagline: ["DESIGN ENGINEER", "INTERACTION DESIGN", "AI PRODUCTS"]
+
+contact:
+  - "maiasch.com"
+  - "ms3784@cornell.edu"
+  - "linkedin.com/in/maiasch"
+  - "github.com/maiaschlesiger"
+
+education:
+  school: "Cornell University"
+  degree: "B.A. Computer Science"
+  grad: "Grad. May 2028"
+  # EDITABLE - chosen from courses_available below.
+  coursework: ["Applied AI for Teams", "Artificial Intelligence", "Game Development"]
+
+# Courses you have actually taken or are taking. Tailoring may swap which of
+# these appear; it may never list a course that is not on this list.
+courses_available:
+  - "Applied AI for Teams"
+  - "Artificial Intelligence"
+  - "Game Development"
+  - "Introduction to Algorithms"
+  - "Discrete Structures"
+  - "Foundations for Understanding AI"
+
+experience:
+  - org: "WANDA"
+    role: "Product Manager"
+    where: "Ithaca, NY"
+    when: "Aug 2026 – Present"
+    # EDITABLE - wording only. Bullet count is fixed.
+    bullets:
+      - "Lead product for Little Wanda, an interactive kids platform combining AI storytelling, games, and nutrition challenges."
+      - "Define the roadmap with design and engineering, building food literacy into gameplay around foods families already cook at home."
+  - org: "The Design Minds"
+    role: "Design Intern"
+    where: "Washington, DC"
+    when: "July 2026 – Aug 2026"
+    bullets:
+      - "Designed for an exhibit studio whose work stands in museums and national parks, condensing dense historical research into spatial narratives visitors move through."
+      - "Set panel sequence and sightlines so the story holds whether a visitor spends two minutes or twenty."
+  - org: "Pelvic Pain Association at Cornell"
+    role: "Product Designer"
+    where: "Ithaca, NY"
+    when: "Jan 2026 – May 2026"
+    bullets:
+      - "Shipped PPAC's first website with 5 designers, giving Cornell students a low-stigma path from symptom to campus care for endometriosis, PCOS, and vulvodynia."
+      - "Organized the content by symptom rather than diagnosis in Figma, since most students arrive without one."
+  - org: "MedExplain"
+    role: "Product Designer"
+    where: "Ithaca, NY"
+    when: "Oct 2025 – Dec 2025"
+    bullets:
+      - "Conducted UX research and redesign for a healthcare search engine at Weill Cornell Medical School with 4 designers."
+      - "Ran user interviews and rebuilt the results page in Figma so patients without a medical background can identify what answers their question."
+  - org: "Seoul National University"
+    role: "Machine Learning Research Intern"
+    where: "Seoul, South Korea"
+    when: "June 2025"
+    bullets:
+      - "Built a Python pipeline that clusters and visualizes RNA mutagenesis data across 1,000+ gut-bacteria strains, helping the lab isolate which microbes drive obesity."
+      - "Automated preprocessing in Python to cut cleaning time 45% and make results reproducible across researchers."
+  - org: "JSTI, Defense Threat Reduction Agency"
+    role: "AI Design Research Intern"
+    where: "Towson, MD"
+    when: "June 2023 – Aug 2023"
+    bullets:
+      - "Designed and evaluated AI models that search bridge geometries for the highest load capacity per unit of material."
+      - "Built with engineers and researchers under DoD / ORISE; won Best Overall Design."
+
+leadership:
+  - org: "Cornell Association of CS Undergraduates"
+    role: "President"
+    # EDITABLE - wording only.
+    bullets:
+      - "Founded the product-design track of Cornell's largest CS org (1,500+ members), running workshops and team projects that carry students from problem framing to a shipped release."
+      - "Direct the designer and developer subteams building the club's first design system in Figma."
+  - org: "Hack4Impact Cornell"
+    role: "Product Manager"
+    bullets:
+      - "Lead a student engineering team building software for nonprofit and public-health partners, owning scope from partner intake through launch."
+
+# EDITABLE - the items within each line may be reordered, and items may be
+# dropped, but nothing may be added that is not in skills_available.
+skills:
+  Design: ["Interaction design", "product design", "design systems", "Figma",
+           "Adobe Photoshop", "Adobe Illustrator", "Adobe InDesign", "Miro"]
+  Technical: ["TypeScript", "JavaScript", "React", "HTML", "CSS", "Python",
+              "SQL (Structured Query Language)", "Unity", "Git", "GitHub"]
+  "AI & Research": ["Artificial intelligence (AI) prototyping", "machine learning pipelines",
+                    "user experience (UX) research", "data visualization"]
+  Recognition: ["National Building Museum Golden Hammer Award", "JSTI Best Overall Design",
+                "Cornell Goethe Prize", "Naval Horizons Contest Highest Honors"]
+
+# Nothing outside this list may appear in the skills section. Recognition is
+# never reordered or trimmed -- awards are facts, not positioning.
+skills_available:
+  Design: ["Interaction design", "product design", "design systems", "Figma",
+           "Adobe Photoshop", "Adobe Illustrator", "Adobe InDesign", "Miro",
+           "wireframing", "prototyping", "usability testing", "information architecture",
+           "user flows", "design critique"]
+  Technical: ["TypeScript", "JavaScript", "React", "HTML", "CSS", "Python",
+              "SQL (Structured Query Language)", "Unity", "Git", "GitHub"]
+  "AI & Research": ["Artificial intelligence (AI) prototyping", "machine learning pipelines",
+                    "user experience (UX) research", "data visualization",
+                    "user interviews", "A/B testing", "competitive analysis",
+                    "product requirements", "roadmapping"]

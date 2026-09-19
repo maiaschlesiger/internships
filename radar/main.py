@@ -10,6 +10,8 @@ from __future__ import annotations
 
 import argparse
 import logging
+import re
+import tempfile
 import os
 import time
 import sys
@@ -21,6 +23,8 @@ import yaml
 
 from . import apollo, classify, dedupe, enrich, jobdesc
 from .models import Posting
+from .resume import render as resume_render
+from .resume import tailor as resume_tailor
 from .notion_sink import Notion
 from .sources import ghlist, internlist, jobright
 
@@ -94,6 +98,62 @@ def apply_scraped_dates(postings, pages) -> None:
             upgraded += 1
     if upgraded:
         log.info("posting time taken from the employer's page for %d listings", upgraded)
+
+
+def tailor_resumes(client, database_id: str, cfg: dict) -> int:
+    """Attach a job-specific resume to each row that is marked as being applied to.
+
+    Only rows the user has flagged are touched: tailoring costs a model call and
+    a render per posting, and a resume for a job she will not apply to is waste.
+    A posting whose variant fails validation still gets a resume -- the base one,
+    unmodified -- because an untailored resume is far better than none.
+    """
+    base_path = Path(__file__).resolve().parent.parent / "resume" / "base.yaml"
+    if not base_path.exists():
+        log.error("no resume/base.yaml; nothing to tailor")
+        return 2
+    base = yaml.safe_load(base_path.read_text())
+
+    rows = client.rows_awaiting_resume(database_id,
+                                       status=cfg.get("resume_trigger_status", "Applying"))
+    if not rows:
+        log.info("no rows are waiting for a resume")
+        return 0
+
+    # The stored Skill Requirements are the posting's own words, so they make a
+    # good tailoring brief without re-fetching the page. Re-fetch only when the
+    # row has nothing useful stored.
+    needs_text = [r for r in rows if len(r.get("skills", "")) < 80 and r.get("url")]
+    fetched = {}
+    if needs_text:
+        stubs = [Posting(job_id=r["page_id"], title=r["title"], company=r["company"],
+                         source="resume", portal_url=r["url"]) for r in needs_text]
+        fetched = jobdesc.fetch_all(stubs, max_chars=cfg.get("description_max_chars", 6000),
+                                    workers=cfg.get("description_workers", 6))
+
+    out_dir = Path(tempfile.mkdtemp(prefix="resumes-"))
+    written = 0
+    for row in rows:
+        page = fetched.get(row["page_id"])
+        posting = {
+            "title": row["title"], "company": row["company"],
+            "category": row["category"], "keywords": row.get("keywords") or [],
+            "description": (page.text if page and page.text else row.get("skills", "")),
+        }
+        content, note = resume_tailor.tailor(base, posting)
+        safe = re.sub(r"[^A-Za-z0-9]+", "-", f"{row['company']}-{row['title']}").strip("-")[:70]
+        pdf = out_dir / f"Maia-Schlesiger-{safe or 'Resume'}.pdf"
+        try:
+            resume_render.render(content, pdf)
+            client.attach_file(row["page_id"], pdf)
+            written += 1
+            log.info("%s — %s (%s)", row["company"][:28], row["title"][:44], note)
+        except Exception as exc:  # noqa: BLE001 - one failure must not lose the rest
+            log.error("resume failed for %r at %r: %s", row["title"][:40], row["company"], exc)
+        time.sleep(0.35)
+
+    log.info("attached %d/%d resumes", written, len(rows))
+    return 0
 
 
 def backfill(client, database_id: str, cfg: dict, limit: int = 0) -> int:
@@ -183,6 +243,10 @@ def main(argv=None) -> int:
                     help="First run: reconstruct real posting times from source git history "
                          "instead of stamping everything as 'just now'.")
     ap.add_argument("--dry-run", action="store_true", help="Do everything except write to Notion.")
+    ap.add_argument("--tailor-resumes", action="store_true",
+                    help="For every row marked Applying that has no resume attached, "
+                         "tailor the resume to that posting, render a PDF and upload it "
+                         "to the row. Does not scrape for new listings.")
     ap.add_argument("--backfill", action="store_true",
                     help="Re-visit rows already in the database that are missing skill "
                          "requirements or a contact email, and fill just those two "
@@ -220,6 +284,14 @@ def main(argv=None) -> int:
     if not args.dry_run and not (token and database_id):
         log.error("NOTION_TOKEN and NOTION_DATABASE_ID must be set (or pass --dry-run)")
         return 2
+
+    if args.tailor_resumes:
+        if args.dry_run:
+            log.error("--tailor-resumes and --dry-run are contradictory; doing nothing")
+            return 2
+        client = Notion(token)
+        client.ensure_schema(database_id)
+        return tailor_resumes(client, database_id, cfg)
 
     if args.backfill:
         if args.dry_run:
