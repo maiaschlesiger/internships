@@ -38,6 +38,18 @@ This prints a `NOTION_DATABASE_ID`. Add both values as repository secrets under
 | `ANTHROPIC_API_KEY` | recommended | ambiguous listings stay on keyword rules; every row gets the same generic resume keywords |
 | `APOLLO_API_KEY` | optional | Recruiter Contact column stays empty |
 
+### Rebuilding from scratch
+
+To empty the database and repopulate it — after changing the filters, say —
+run the workflow manually with both **clear_first** and **bootstrap** ticked.
+
+`clear_first` archives every row. Notion keeps archived pages in the workspace
+trash, so this is recoverable for a while, and the database itself, its columns
+and the Hours Since Posted formula are untouched. The cron cannot set it; it is
+reachable only from a manual dispatch.
+
+Locally the same thing is `python -m radar.main --clear-database --bootstrap`.
+
 ### 3. First run (bootstrap)
 
 Run the workflow manually from the **Actions** tab with `bootstrap: true`.

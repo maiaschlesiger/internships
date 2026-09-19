@@ -153,6 +153,41 @@ class Notion:
         """Backwards-compatible wrapper around existing_keys."""
         return self.existing_keys(database_id)[0]
 
+    def all_page_ids(self, database_id: str) -> List[str]:
+        ids: List[str] = []
+        cursor: Optional[str] = None
+        while True:
+            body = {"page_size": 100}
+            if cursor:
+                body["start_cursor"] = cursor
+            page = self._call("POST", f"/databases/{database_id}/query", json=body)
+            ids.extend(row["id"] for row in page.get("results", []) if row.get("id"))
+            if not page.get("has_more"):
+                break
+            cursor = page.get("next_cursor")
+        return ids
+
+    def clear(self, database_id: str) -> int:
+        """Empty the database.
+
+        Pages are archived rather than destroyed: Notion keeps archived pages in
+        the workspace trash, so a mistake here is recoverable for a while. The
+        database itself, its columns and the Hours Since Posted formula are left
+        untouched -- only rows go.
+        """
+        ids = self.all_page_ids(database_id)
+        log.info("clearing %d rows from the database", len(ids))
+        removed = 0
+        for page_id in ids:
+            try:
+                self._call("PATCH", f"/pages/{page_id}", json={"archived": True})
+                removed += 1
+            except Exception as exc:  # noqa: BLE001 - keep going, report at the end
+                log.error("could not archive %s: %s", page_id, exc)
+            time.sleep(0.35)  # Notion's ~3 req/s ceiling
+        log.info("archived %d/%d rows", removed, len(ids))
+        return removed
+
     def add(self, database_id: str, p: Posting) -> None:
         def rt(value: str) -> dict:
             return {"rich_text": [{"type": "text", "text": {"content": value[:2000]}}]} if value else {"rich_text": []}

@@ -17,6 +17,10 @@ on:
         description: "Run the pipeline but do not write to Notion"
         type: boolean
         default: false
+      clear_first:
+        description: "DESTRUCTIVE: archive every existing row before scraping (rows go to Notion trash)"
+        type: boolean
+        default: false
   push:
     branches: [main]
 
@@ -52,6 +56,8 @@ jobs:
           APOLLO_API_KEY: ${{ secrets.APOLLO_API_KEY }}
         run: |
           ARGS=""
+          # Only ever reachable from a manual dispatch -- the cron cannot set it.
+          if [ "${{ inputs.clear_first }}" = "true" ]; then ARGS="$ARGS --clear-database"; fi
           if [ "${{ inputs.bootstrap }}" = "true" ]; then ARGS="$ARGS --bootstrap"; fi
           if [ "${{ inputs.dry_run }}" = "true" ] || [ "${{ github.event_name }}" = "push" ]; then
             ARGS="$ARGS --dry-run"

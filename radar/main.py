@@ -113,6 +113,11 @@ def main(argv=None) -> int:
                     help="First run: reconstruct real posting times from source git history "
                          "instead of stamping everything as 'just now'.")
     ap.add_argument("--dry-run", action="store_true", help="Do everything except write to Notion.")
+    ap.add_argument("--clear-database", action="store_true",
+                    help="Archive every row in the database before scraping. The database, "
+                         "its columns and formulas survive; rows go to the Notion trash, "
+                         "where they can be restored. Combine with --bootstrap for a "
+                         "clean rebuild.")
     ap.add_argument("--create-database", action="store_true",
                     help="Create the Notion database under NOTION_PARENT_PAGE_ID and print its id.")
     ap.add_argument("-v", "--verbose", action="store_true")
@@ -140,6 +145,12 @@ def main(argv=None) -> int:
     if not args.dry_run and not (token and database_id):
         log.error("NOTION_TOKEN and NOTION_DATABASE_ID must be set (or pass --dry-run)")
         return 2
+
+    if args.clear_database:
+        if args.dry_run:
+            log.error("--clear-database and --dry-run are contradictory; doing nothing")
+            return 2
+        Notion(token).clear(database_id)
 
     postings = collect(cfg, bootstrap=args.bootstrap)
 
