@@ -146,9 +146,12 @@ def main(argv=None) -> int:
     # Dedup against what is already in Notion before spending anything.
     if not args.dry_run:
         client = Notion(token)
-        known = client.existing_job_ids(database_id)
-        postings = [p for p in postings if p.job_id not in known]
-        log.info("%d listings are new", len(postings))
+        known_ids, known_prints = client.existing_keys(database_id)
+        before = len(postings)
+        postings = [p for p in postings
+                    if p.job_id not in known_ids
+                    and dedupe.fingerprint(p) not in known_prints]
+        log.info("%d of %d listings are new", len(postings), before)
 
     postings = within_window(postings, cfg.get("window_hours", 24))
     if not postings:

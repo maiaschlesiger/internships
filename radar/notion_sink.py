@@ -10,10 +10,11 @@ from __future__ import annotations
 
 import logging
 import time
-from typing import Dict, Iterable, List, Optional, Sequence, Set
+from typing import Dict, Iterable, List, Optional, Sequence, Set, Tuple
 
 import requests
 
+from .dedupe import fingerprint
 from .models import Posting
 
 log = logging.getLogger(__name__)
@@ -70,6 +71,11 @@ SCHEMA = {
 }
 
 
+def _plain_text(chunks) -> str:
+    """Flatten a Notion rich_text / title property to a plain string."""
+    return "".join(c.get("plain_text", "") for c in (chunks or [])).strip()
+
+
 class Notion:
     def __init__(self, token: str):
         self.s = requests.Session()
@@ -103,26 +109,49 @@ class Notion:
         log.info("created database %s (%s)", title, db["id"])
         return db["id"]
 
-    def existing_job_ids(self, database_id: str) -> Set[str]:
-        """Every Job ID already in the database -- the dedup key."""
+    def existing_keys(self, database_id: str) -> Tuple[Set[str], Set[str]]:
+        """What is already in the database, as ``(job_ids, fingerprints)``.
+
+        Job ids alone are not enough. Each source list mints its own id, so the
+        same job arriving later from a different list carries a different id and
+        would be appended a second time. Reconstructing the content fingerprint
+        from the stored Title, Company and Location catches that -- it is the
+        same function radar/dedupe.py uses within a single run.
+        """
         ids: Set[str] = set()
+        prints: Set[str] = set()
         cursor: Optional[str] = None
+
         while True:
             body = {"page_size": 100}
             if cursor:
                 body["start_cursor"] = cursor
             page = self._call("POST", f"/databases/{database_id}/query", json=body)
             for row in page.get("results", []):
-                prop = row.get("properties", {}).get(P_JOB_ID, {})
-                for chunk in prop.get("rich_text", []):
+                props = row.get("properties", {})
+                for chunk in props.get(P_JOB_ID, {}).get("rich_text", []):
                     text = chunk.get("plain_text", "").strip()
                     if text:
                         ids.add(text)
+                stub = Posting(
+                    job_id="",
+                    title=_plain_text(props.get(P_TITLE, {}).get("title", [])),
+                    company=_plain_text(props.get(P_COMPANY, {}).get("rich_text", [])),
+                    source="",
+                    location=_plain_text(props.get(P_LOCATION, {}).get("rich_text", [])),
+                )
+                if stub.title and stub.company:
+                    prints.add(fingerprint(stub))
             if not page.get("has_more"):
                 break
             cursor = page.get("next_cursor")
-        log.info("database already holds %d listings", len(ids))
-        return ids
+
+        log.info("database already holds %d listings (%d distinct jobs)", len(ids), len(prints))
+        return ids, prints
+
+    def existing_job_ids(self, database_id: str) -> Set[str]:
+        """Backwards-compatible wrapper around existing_keys."""
+        return self.existing_keys(database_id)[0]
 
     def add(self, database_id: str, p: Posting) -> None:
         def rt(value: str) -> dict:

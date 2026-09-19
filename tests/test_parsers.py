@@ -294,6 +294,29 @@ class TestDedupe(unittest.TestCase):
         self.assertIn("greenhouse", rows[0].portal_url)
 
 
+class TestStoredRowDedup(unittest.TestCase):
+    """A job already in the database must not be re-added from another list."""
+
+    def test_fingerprint_matches_between_a_stored_row_and_a_fresh_scrape(self):
+        stored = Posting(job_id="6aad7a803dbb1f8967cedb27",
+                         title="Product Management Intern", company="Vertiv",
+                         source="jobright", location="Westerville, OH")
+        # Same job, later seen on a different list: different id, different
+        # location suffix, term named in the title.
+        scraped = Posting(job_id="gh:abc123", title="Product Management Intern",
+                          company="Vertiv", source="SimplifyJobs",
+                          location="Westerville, OH, United States")
+        self.assertNotEqual(stored.job_id, scraped.job_id)
+        self.assertEqual(dedupe.fingerprint(stored), dedupe.fingerprint(scraped))
+
+    def test_different_roles_do_not_collide(self):
+        a = Posting(job_id="1", title="Product Management Intern", company="Vertiv",
+                    source="x", location="Westerville, OH")
+        b = Posting(job_id="2", title="Product Design Intern", company="Vertiv",
+                    source="x", location="Westerville, OH")
+        self.assertNotEqual(dedupe.fingerprint(a), dedupe.fingerprint(b))
+
+
 class TestPostedAtScraping(unittest.TestCase):
     def test_schema_org_date_with_time_is_marked_scraped(self):
         html = '<script type="application/ld+json">{"@type":"JobPosting",' \
