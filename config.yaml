@@ -91,9 +91,13 @@ sources:
     - "jobright-ai/2026-Design-Internship"
     - "jobright-ai/2026-Business-Analyst-Internship"
     - "jobright-ai/2026-Data-Analysis-Internship"
+  # intern-list.com short links. These map to jobright minisite paths in
+  # radar/sources/internlist.py -- "cst" is consulting, which the four GitHub
+  # repos do not cover at all.
   internlist_feeds:
     - "pm"
     - "cd"
+    - "cst"
 
 # Only listings first seen within this many hours are written.
 window_hours: 24

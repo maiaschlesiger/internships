@@ -129,8 +129,31 @@ class TestInternListHelpers(unittest.TestCase):
         self.assertEqual(internlist.parse_relative_age("2 days ago", now).day, 17)
         self.assertIsNone(internlist.parse_relative_age("no date here", now))
 
-    def test_malformed_html_returns_empty_not_raises(self):
-        self.assertEqual(internlist._from_html("<table><tr><td>broken", "pm"), [])
+    def test_reuses_jobright_native_id_so_sources_dedup(self):
+        """intern-list is jobright's own front end; the same role appears in both."""
+        native = "6aad7a803dbb1f8967cedb27"
+        self.assertEqual(
+            internlist.stable_id("pm", f"https://jobright.ai/jobs/info/{native}?utm=1"),
+            native,
+        )
+
+    def test_unknown_feed_returns_empty_not_raises(self):
+        self.assertEqual(internlist.fetch("not-a-feed"), [])
+
+    def test_maps_listing_payload_regardless_of_nesting(self):
+        payload = {"result": {"data": {"jobList": [
+            {"jobTitle": "Product Management Intern", "companyName": "Acme",
+             "jobLocation": "New York, NY", "jobId": "6aad7a803dbb1f8967cedb27",
+             "applyLink": "https://acme.com/apply", "publishTimeDesc": "3 hours ago"}
+        ]}}}
+        rows = internlist.postings_from_payload(payload, "pm")
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0].company, "Acme")
+        self.assertEqual(rows[0].job_id, "6aad7a803dbb1f8967cedb27")
+        self.assertIsNotNone(rows[0].posted_at)
+
+    def test_payload_without_listings_returns_empty(self):
+        self.assertEqual(internlist.postings_from_payload({"totalCount": 30921}, "pm"), [])
 
 
 class TestJobDescription(unittest.TestCase):
