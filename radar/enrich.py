@@ -13,12 +13,14 @@ import json
 import logging
 import os
 import re
-from typing import Dict, List, Sequence
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from typing import Dict, List, Optional, Sequence
 from urllib.parse import urlparse
 
 import requests
 
 from . import jobdesc
+from .dedupe import _is_real_portal
 from .models import Posting
 
 log = logging.getLogger(__name__)
@@ -45,34 +47,63 @@ ATS_HINTS = ("greenhouse.io", "lever.co", "myworkdayjobs.com", "workday", "icims
              "successfactors", "oraclecloud.com", "brassring.com", "eightfold.ai")
 
 
-def resolve_portal(postings: Sequence[Posting], timeout: int = 20) -> None:
-    """Follow each listing URL to the employer's own application page.
+def resolve_portal(postings: Sequence[Posting], timeout: int = 15,
+                   workers: int = 8) -> None:
+    """Follow aggregator links through to the employer's own application page.
 
-    Aggregator links redirect to the real applicant tracking system. When the
-    chain cannot be followed (network blocked, JS-only interstitial, dead link)
-    the listing URL is kept so the row always has somewhere to click.
+    Two things keep this cheap. Listings that already carry a real employer URL
+    are skipped outright -- the community lists link straight to the applicant
+    tracking system, so re-fetching them only confirms what is already known,
+    and they are the majority of any run. What is left is resolved
+    concurrently; done one at a time with a generous timeout, a bootstrap over
+    several hundred listings can approach the job's own time limit.
+
+    When a chain cannot be followed the listing URL is kept, so a row always
+    has somewhere to click.
     """
+    pending = []
+    for p in postings:
+        if _is_real_portal(p.portal_url):
+            continue  # already an employer URL from the source list
+        if not p.listing_url:
+            continue
+        pending.append(p)
+
+    skipped = len(postings) - len(pending)
+    if skipped:
+        log.info("portal: %d listings already carry an employer URL", skipped)
+    if not pending:
+        return
+
     session = requests.Session()
     session.headers.update({"User-Agent": "Mozilla/5.0 (compatible; internship-radar/1.0)"})
 
-    for p in postings:
-        if not p.listing_url:
-            continue
+    def resolve(p: Posting) -> None:
         try:
             resp = session.get(p.listing_url, timeout=timeout, allow_redirects=True)
             final = resp.url
         except requests.RequestException as exc:
             log.debug("portal resolve failed for %s: %s", p.job_id, exc)
             p.portal_url = p.listing_url
-            continue
-
+            return
         host = urlparse(final).netloc.lower()
-        if final != p.listing_url and not any(a in host for a in ("jobright",)):
+        if final != p.listing_url and "jobright" not in host:
             p.portal_url = final
             if not any(h in host for h in ATS_HINTS):
                 log.debug("%s resolved to non-ATS host %s", p.job_id, host)
         else:
             p.portal_url = p.listing_url
+
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        futures = [pool.submit(resolve, p) for p in pending]
+        for fut in as_completed(futures):
+            try:
+                fut.result()
+            except Exception as exc:  # noqa: BLE001 - one bad link must not stop the rest
+                log.debug("portal worker failed: %s", exc)
+
+    resolved = sum(1 for p in pending if _is_real_portal(p.portal_url))
+    log.info("portal: resolved %d/%d redirects to an employer URL", resolved, len(pending))
 
 
 ENRICH_PROMPT = """For each internship listing below, identify what a strong \
