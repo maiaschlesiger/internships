@@ -11,6 +11,7 @@ from __future__ import annotations
 import argparse
 import logging
 import os
+import time
 import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -95,6 +96,42 @@ def apply_scraped_dates(postings, pages) -> None:
         log.info("posting time taken from the employer's page for %d listings", upgraded)
 
 
+def backfill(client, database_id: str, cfg: dict) -> int:
+    """Fill gaps in rows that already exist, without disturbing anything else."""
+    rows = client.rows_to_backfill(database_id)
+    if not rows:
+        log.info("nothing to backfill")
+        return 0
+
+    # Reuse the normal page fetcher by wrapping each row as a Posting.
+    stubs = [Posting(job_id=r["page_id"], title=r["title"], company=r["company"],
+                     source="backfill", portal_url=r["url"]) for r in rows]
+    pages = jobdesc.fetch_all(
+        stubs,
+        max_chars=cfg.get("description_max_chars", 6000),
+        workers=cfg.get("description_workers", 6),
+    )
+
+    updated = 0
+    for row in rows:
+        data = pages.get(row["page_id"])
+        if not data:
+            continue
+        skills = data.requirements if row["needs_skills"] else ""
+        recruiter = data.contact_email if row["needs_recruiter"] else ""
+        if not skills and not recruiter:
+            continue
+        try:
+            client.update_row(row["page_id"], skills=skills, recruiter=recruiter)
+            updated += 1
+        except Exception as exc:  # noqa: BLE001 - one bad row must not lose the rest
+            log.error("could not update %r: %s", row["title"][:40], exc)
+        time.sleep(0.35)
+
+    log.info("backfilled %d/%d rows", updated, len(rows))
+    return 0
+
+
 def apply_scraped_emails(postings, pages) -> None:
     """Use the contact address the employer printed in the posting."""
     filled = 0
@@ -125,6 +162,11 @@ def main(argv=None) -> int:
                     help="First run: reconstruct real posting times from source git history "
                          "instead of stamping everything as 'just now'.")
     ap.add_argument("--dry-run", action="store_true", help="Do everything except write to Notion.")
+    ap.add_argument("--backfill", action="store_true",
+                    help="Re-visit rows already in the database that are missing skill "
+                         "requirements or a contact email, and fill just those two "
+                         "fields. Applied tags, resume PDFs and every other column are "
+                         "left untouched. Does not scrape for new listings.")
     ap.add_argument("--clear-database", action="store_true",
                     help="Archive every row in the database before scraping. The database, "
                          "its columns and formulas survive; rows go to the Notion trash, "
@@ -157,6 +199,12 @@ def main(argv=None) -> int:
     if not args.dry_run and not (token and database_id):
         log.error("NOTION_TOKEN and NOTION_DATABASE_ID must be set (or pass --dry-run)")
         return 2
+
+    if args.backfill:
+        if args.dry_run:
+            log.error("--backfill and --dry-run are contradictory; doing nothing")
+            return 2
+        return backfill(Notion(token), database_id, cfg)
 
     if args.clear_database:
         if args.dry_run:

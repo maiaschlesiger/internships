@@ -17,6 +17,10 @@ on:
         description: "Run the pipeline but do not write to Notion"
         type: boolean
         default: false
+      backfill:
+        description: "Fill missing skills/contact emails on EXISTING rows (keeps Applied tags and resume PDFs)"
+        type: boolean
+        default: false
       clear_first:
         description: "DESTRUCTIVE: archive every existing row before scraping (rows go to Notion trash)"
         type: boolean
@@ -57,6 +61,7 @@ jobs:
         run: |
           ARGS=""
           # Only ever reachable from a manual dispatch -- the cron cannot set it.
+          if [ "${{ inputs.backfill }}" = "true" ]; then ARGS="$ARGS --backfill"; fi
           if [ "${{ inputs.clear_first }}" = "true" ]; then ARGS="$ARGS --clear-database"; fi
           if [ "${{ inputs.bootstrap }}" = "true" ]; then ARGS="$ARGS --bootstrap"; fi
           if [ "${{ inputs.dry_run }}" = "true" ] || [ "${{ github.event_name }}" = "push" ]; then

@@ -38,10 +38,26 @@ This prints a `NOTION_DATABASE_ID`. Add both values as repository secrets under
 | `ANTHROPIC_API_KEY` | recommended | ambiguous listings stay on keyword rules; every row gets the same generic resume keywords |
 | `APOLLO_API_KEY` | optional | Recruiter Contact column stays empty |
 
+### Filling gaps in rows you already have
+
+A normal run only ever **appends**. Rows already in the database are skipped by
+dedup and never revisited, so improvements to the scraping do not reach them.
+
+Run the workflow with **backfill** ticked to re-visit existing rows that are
+missing skill requirements or a contact email and fill just those two fields.
+**Applied tags, resume PDFs and every other column are left untouched** — which
+is the whole point, and the reason to prefer this over a rebuild once you have
+started annotating rows.
+
+Locally: `python -m radar.main --backfill`.
+
 ### Rebuilding from scratch
 
 To empty the database and repopulate it — after changing the filters, say —
 run the workflow manually with both **clear_first** and **bootstrap** ticked.
+
+This **destroys your Applied tags and any resume PDFs you have attached** —
+use `backfill` instead once those matter to you.
 
 `clear_first` archives every row. Notion keeps archived pages in the workspace
 trash, so this is recoverable for a while, and the database itself, its columns

@@ -188,6 +188,61 @@ class Notion:
         log.info("archived %d/%d rows", removed, len(ids))
         return removed
 
+    def rows_to_backfill(self, database_id: str) -> List[dict]:
+        """Existing rows that are missing data a re-fetch could supply.
+
+        Returns dicts of ``{page_id, url, title, company, needs_skills,
+        needs_recruiter}`` for rows whose Skill Requirements is empty or still
+        holds a placeholder, or whose Recruiter Contact is blank.
+        """
+        out: List[dict] = []
+        cursor: Optional[str] = None
+        while True:
+            body = {"page_size": 100}
+            if cursor:
+                body["start_cursor"] = cursor
+            page = self._call("POST", f"/databases/{database_id}/query", json=body)
+            for row in page.get("results", []):
+                props = row.get("properties", {})
+                skills = _plain_text(props.get(P_SKILLS, {}).get("rich_text", []))
+                recruiter = props.get(P_RECRUITER, {}).get("email") or ""
+                url = props.get(P_PORTAL, {}).get("url") or ""
+                needs_skills = (not skills) or skills.startswith((
+                    "Could not read", "Inferred from", "See listing",
+                    "Description fetched"))
+                if not url or not (needs_skills or not recruiter):
+                    continue
+                out.append({
+                    "page_id": row["id"],
+                    "url": url,
+                    "title": _plain_text(props.get(P_TITLE, {}).get("title", [])),
+                    "company": _plain_text(props.get(P_COMPANY, {}).get("rich_text", [])),
+                    "needs_skills": needs_skills,
+                    "needs_recruiter": not recruiter,
+                })
+            if not page.get("has_more"):
+                break
+            cursor = page.get("next_cursor")
+        log.info("%d existing rows could be backfilled", len(out))
+        return out
+
+    def update_row(self, page_id: str, skills: str = "", recruiter: str = "") -> None:
+        """Patch only the named fields.
+
+        Everything else on the row is left alone -- crucially the Applied tag
+        and any resume PDF, which are the user's own work and must survive a
+        refresh of the scraped columns.
+        """
+        props: Dict[str, dict] = {}
+        if skills:
+            props[P_SKILLS] = {"rich_text": [{"type": "text",
+                                              "text": {"content": skills[:2000]}}]}
+        if recruiter:
+            props[P_RECRUITER] = {"email": recruiter}
+        if not props:
+            return
+        self._call("PATCH", f"/pages/{page_id}", json={"properties": props})
+
     def add(self, database_id: str, p: Posting) -> None:
         def rt(value: str) -> dict:
             return {"rich_text": [{"type": "text", "text": {"content": value[:2000]}}]} if value else {"rich_text": []}
