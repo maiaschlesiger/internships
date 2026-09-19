@@ -188,7 +188,7 @@ class Notion:
         log.info("archived %d/%d rows", removed, len(ids))
         return removed
 
-    def rows_to_backfill(self, database_id: str) -> List[dict]:
+    def rows_to_backfill(self, database_id: str, limit: int = 0) -> List[dict]:
         """Existing rows that are missing data a re-fetch could supply.
 
         Returns dicts of ``{page_id, url, title, company, needs_skills,
@@ -198,7 +198,12 @@ class Notion:
         out: List[dict] = []
         cursor: Optional[str] = None
         while True:
-            body = {"page_size": 100}
+            body = {
+                "page_size": 100,
+                # Newest first, so a capped pass fixes the rows you are most
+                # likely to be looking at rather than the oldest stragglers.
+                "sorts": [{"timestamp": "created_time", "direction": "descending"}],
+            }
             if cursor:
                 body["start_cursor"] = cursor
             page = self._call("POST", f"/databases/{database_id}/query", json=body)
@@ -222,6 +227,9 @@ class Notion:
                     "needs_skills": needs_skills,
                     "needs_recruiter": not recruiter,
                 })
+                if limit and len(out) >= limit:
+                    log.info("%d rows queued for backfill (capped)", len(out))
+                    return out
             if not page.get("has_more"):
                 break
             cursor = page.get("next_cursor")

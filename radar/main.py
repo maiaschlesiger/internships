@@ -96,9 +96,9 @@ def apply_scraped_dates(postings, pages) -> None:
         log.info("posting time taken from the employer's page for %d listings", upgraded)
 
 
-def backfill(client, database_id: str, cfg: dict) -> int:
+def backfill(client, database_id: str, cfg: dict, limit: int = 0) -> int:
     """Fill gaps in rows that already exist, without disturbing anything else."""
-    rows = client.rows_to_backfill(database_id)
+    rows = client.rows_to_backfill(database_id, limit=limit)
     if not rows:
         log.info("nothing to backfill")
         return 0
@@ -264,6 +264,14 @@ def main(argv=None) -> int:
         return 0
 
     client.add_all(database_id, postings)
+
+    # Self-heal: give a bounded number of existing incomplete rows another try,
+    # so improvements to the scraping reach older rows without a manual pass.
+    # Bounded on purpose -- a page that never yields a contact email would
+    # otherwise be re-fetched every hour forever.
+    per_run = cfg.get("backfill_per_run", 0)
+    if per_run:
+        backfill(client, database_id, cfg, limit=per_run)
     return 0
 
 

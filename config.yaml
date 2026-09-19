@@ -146,5 +146,12 @@ description_workers: 6
 # It bills credits per reveal, so cap the companies queried per run (0 = no cap).
 apollo_max_lookups: 15
 
+# After each run appends new listings, retry this many existing rows that are
+# still missing skill requirements or a contact email, newest first. Keeps the
+# table healing itself as the scraping improves, without re-fetching pages that
+# never yield anything on every single tick. 0 disables it; the manual backfill
+# dispatch input ignores this cap and sweeps everything.
+backfill_per_run: 25
+
 # Set false to skip the Claude adjudication pass entirely (keyword rules only).
 use_model_for_uncertain: true

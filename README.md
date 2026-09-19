@@ -40,8 +40,14 @@ This prints a `NOTION_DATABASE_ID`. Add both values as repository secrets under
 
 ### Filling gaps in rows you already have
 
-A normal run only ever **appends**. Rows already in the database are skipped by
-dedup and never revisited, so improvements to the scraping do not reach them.
+New listings are appended automatically every hour. Existing rows are skipped
+by dedup, so they are not rewritten — but each run also retries
+`backfill_per_run` rows (default 25, newest first) that are still missing skill
+requirements or a contact email. The table heals itself over a few hours
+without re-fetching dead pages on every tick.
+
+To sweep **every** incomplete row at once instead of 25, run the workflow with
+**backfill** ticked — that ignores the cap.
 
 Run the workflow with **backfill** ticked to re-visit existing rows that are
 missing skill requirements or a contact email and fill just those two fields.
