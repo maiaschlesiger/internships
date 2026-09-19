@@ -1,0 +1,81 @@
+name: internship-radar
+
+# Hourly scrape of internship sources into Notion.
+
+on:
+  schedule:
+    # Every hour at :20. The jobright repos commit roughly every 70 minutes,
+    # so hourly sampling reliably catches each batch.
+    - cron: "20 * * * *"
+  workflow_dispatch:
+    inputs:
+      bootstrap:
+        description: "Reconstruct real posting times from source git history (first run only)"
+        type: boolean
+        default: false
+      dry_run:
+        description: "Run the pipeline but do not write to Notion"
+        type: boolean
+        default: false
+  push:
+    branches: [main]
+
+concurrency:
+  # Never let a slow run overlap the next tick and double-write rows.
+  group: internship-radar
+  cancel-in-progress: false
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: requirements.txt
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run tests
+        run: python -m unittest discover -s tests -v
+
+      - name: Scrape
+        env:
+          NOTION_TOKEN: ${{ secrets.NOTION_TOKEN }}
+          NOTION_DATABASE_ID: ${{ secrets.NOTION_DATABASE_ID }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          APOLLO_API_KEY: ${{ secrets.APOLLO_API_KEY }}
+        run: |
+          ARGS=""
+          if [ "${{ inputs.bootstrap }}" = "true" ]; then ARGS="$ARGS --bootstrap"; fi
+          if [ "${{ inputs.dry_run }}" = "true" ] || [ "${{ github.event_name }}" = "push" ]; then
+            ARGS="$ARGS --dry-run"
+          fi
+          python -m radar.main $ARGS
+
+  # Manual only. Captures intern-list.com's real markup so the parser for that
+  # source can be finished from evidence -- the host is unreachable from the
+  # environment it was written in.
+  probe-internlist:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install requests
+      - name: Capture intern-list markup
+        continue-on-error: true
+        run: python tools/probe_internlist.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: internlist-probe
+          path: probe-output/
+          if-no-files-found: warn

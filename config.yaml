@@ -1,0 +1,101 @@
+# Tunable filter rules. Edit these instead of the code -- the classifier reads
+# this file at run time, so changing the lists needs no redeploy.
+
+target_term:
+  # A listing must be plausibly this term to survive.
+  label: "Summer 2027"
+  # Any of these in the title means it IS the target term.
+  accept_patterns:
+    - "summer 2027"
+    - "2027 summer"
+    - "summer '27"
+    - "class of 2028"
+    - "su27"
+  # Any of these means it is explicitly a DIFFERENT term -> reject outright.
+  reject_patterns:
+    - "winter 2027"
+    - "winter 2026"
+    - "fall 2026"
+    - "fall 2027"
+    - "spring 2027"
+    - "spring 2026"
+    - "summer 2026"
+    - "2026 summer"
+    - "class of 2026"
+    - "class of 2027"
+    - "co-op 2026"
+  # Listings naming no term at all. In Sept 2026 an unlabelled internship req
+  # is overwhelmingly for the next summer, so these are kept but flagged so you
+  # can eyeball them in the sheet rather than trusting the filter blindly.
+  unspecified_action: "include_flagged"
+
+# Degree requirements you are not eligible for as an undergrad.
+reject_degree_patterns:
+  - "mba"
+  - "ph.d"
+  - "phd"
+  - "doctoral"
+  - "master's only"
+  - "masters only"
+  - "graduate student"
+  - "grad student"
+
+# Roles that count. First match wins, so order is meaningful.
+categories:
+  - name: "Product Management"
+    patterns: ["product management", "product manager", "associate product manager",
+               "apm intern", "technical product", "product owner", "product strategy"]
+  - name: "Product Design"
+    patterns: ["product design", "ux design", "ui/ux", "user experience", "ux/ui",
+               "ux researcher", "user research", "interaction design", "design intern"]
+  - name: "Consulting / Strategy"
+    patterns: ["consulting", "consultant", "strategy intern", "business strategy",
+               "strategy & operations", "management consulting", "corporate strategy"]
+  - name: "Technical / Adjacent"
+    patterns: ["product analyst", "data analyst", "business analyst", "solutions engineer",
+               "technical program", "program management", "growth intern", "product operations"]
+
+# Hard rejects. Checked before anything else -- these never reach the model.
+reject_categories:
+  - "architecture"
+  - "architectural"
+  - "civil engineer"
+  - "structural engineer"
+  - "mechanical engineer"
+  - "chemical engineer"
+  - "electrical engineer"
+  - "nursing"
+  - "clinical"
+  - "pharmacist"
+  - "accounting"
+  - "audit"
+  - "tax intern"
+  - "sales representative"
+  - "sales intern"
+  - "account executive"
+  - "recruiting intern"
+  - "human resources"
+  - "supply chain"
+  - "warehouse"
+  - "construction"
+  - "interior design"
+  - "landscape"
+
+# Sources. jobright publishes one repo per job family; all four carry roles that
+# fit the brief once the filters below run. intern-list is best-effort: see the
+# STATUS note at the top of radar/sources/internlist.py.
+sources:
+  jobright_repos:
+    - "jobright-ai/2026-Product-Management-Internship"
+    - "jobright-ai/2026-Design-Internship"
+    - "jobright-ai/2026-Business-Analyst-Internship"
+    - "jobright-ai/2026-Data-Analysis-Internship"
+  internlist_feeds:
+    - "pm"
+    - "cd"
+
+# Only listings first seen within this many hours are written.
+window_hours: 24
+
+# Set false to skip the Claude adjudication pass entirely (keyword rules only).
+use_model_for_uncertain: true
