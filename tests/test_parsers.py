@@ -82,7 +82,19 @@ class TestClassifierRules(unittest.TestCase):
         """Matching the company name rejected analytics roles at construction firms."""
         v = rule_verdict(_p("Intern/Co Op - Business Analytics-Intelligence",
                             company="Turner Construction"), CFG)
+        self.assertNotIn("excluded field", v.reason)
         self.assertTrue(v.include)
+
+    def test_unmatched_category_is_dropped_even_when_no_term_is_named(self):
+        """unspecified_action is a TERM policy; it must not rescue an off-topic role.
+
+        Conflating the two let "ESG-Intern" and "R&D Intern - Biostatistics"
+        through on a keyword-only run purely because they named no term.
+        """
+        for title in ("ESG-Intern", "R&D Intern - Biostatistics",
+                      "2027 Future Talent Program - Statistical Programmer - Intern"):
+            with self.subTest(title=title):
+                self.assertFalse(rule_verdict(_p(title), CFG).include)
 
     def test_clear_match_is_accepted_on_rules_alone(self):
         v = rule_verdict(_p("Associate Product Manager (APM) Intern - Summer 2027"), CFG)

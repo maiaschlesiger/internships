@@ -85,14 +85,25 @@ def rule_verdict(p: Posting, cfg: dict) -> Verdict:
     if category and right_term:
         return Verdict(True, term, category, "rule", "clear match")
 
-    # Something is unresolved -- hand it to the model.
+    # Something is unresolved -- hand it to the model. The fallback below only
+    # decides what happens when no model pass runs.
     missing = []
     if not category:
         missing.append("category")
     if not right_term:
         missing.append("term")
+
+    # unspecified_action is a policy about the TERM only: an internship req that
+    # names no term is probably next summer, so keep it. It must NOT rescue a
+    # listing whose ROLE never matched a category -- doing so let "ESG-Intern"
+    # and "R&D Intern - Biostatistics" through purely because they named no term.
+    if category:
+        keep = right_term or term_cfg.get("unspecified_action") == "include_flagged"
+    else:
+        keep = False
+
     return Verdict(
-        bool(category) or term_cfg.get("unspecified_action") == "include_flagged",
+        keep,
         term,
         category or "Uncertain",
         "flagged",

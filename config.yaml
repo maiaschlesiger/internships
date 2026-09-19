@@ -52,8 +52,9 @@ categories:
     patterns: ["consulting", "consultant", "strategy intern", "business strategy",
                "strategy & operations", "management consulting", "corporate strategy"]
   - name: "Technical / Adjacent"
-    patterns: ["product analyst", "data analyst", "business analyst", "solutions engineer",
-               "technical program", "program management", "growth intern", "product operations"]
+    patterns: ["product analyst", "data analyst", "business analyst", "business analytics",
+               "business intelligence", "solutions engineer", "technical program",
+               "program management", "growth intern", "product operations"]
 
 # Hard rejects. Checked before anything else -- these never reach the model.
 reject_categories:
