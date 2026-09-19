@@ -1,10 +1,10 @@
 """Fill in the columns that need inference or an extra request.
 
-Caveat worth knowing: the source table gives us a title, company and location --
-not the job description. Resume keywords and skill requirements are therefore
-inferred from the role title, not extracted from the posting text. They are a
-good starting point for tailoring a resume, not a substitute for reading the
-listing. ``resolve_portal`` is what gets you to the real description.
+``resolve_portal`` finds the employer's own application page; ``jobdesc`` then
+fetches the posting text from it. When that succeeds, keywords and skill
+requirements are drawn from the real description. When it fails -- a dead link,
+a JS-only page with no embedded payload, a login wall -- the pass falls back to
+inferring from the role title, which is weaker and marked as such in the output.
 """
 
 from __future__ import annotations
@@ -18,6 +18,7 @@ from urllib.parse import urlparse
 
 import requests
 
+from . import jobdesc
 from .models import Posting
 
 log = logging.getLogger(__name__)
@@ -35,7 +36,8 @@ FALLBACK_KEYWORDS = {
     "Technical / Adjacent": ["SQL", "Python", "data analysis", "dashboards", "experimentation",
                              "technical documentation", "API fundamentals"],
 }
-GENERIC_SKILLS = "See listing; inferred from title only."
+GENERIC_SKILLS = "Inferred from job title only - open the listing for the real requirements."
+DESC_UNUSED_SKILLS = "Description fetched but not summarised (no ANTHROPIC_API_KEY set)."
 
 # Hosts that mean we landed on a real employer-side application page rather
 # than back on an aggregator.
@@ -74,13 +76,17 @@ def resolve_portal(postings: Sequence[Posting], timeout: int = 20) -> None:
             p.portal_url = p.listing_url
 
 
-ENRICH_PROMPT = """For each internship listing below, infer what a strong resume \
-should emphasise and what skills the role likely requires. Base this on the role \
-title and company; do not invent specifics you cannot support.
+ENRICH_PROMPT = """For each internship listing below, identify what a strong \
+resume should emphasise and what skills the role requires.
+
+Where a DESCRIPTION is given, draw the skills and keywords from it -- quote the \
+posting's own vocabulary, because that is what a resume screener matches against. \
+Where only a title is given, infer conservatively and do not invent specifics.
 
 Return ONLY a JSON array. Each element:
-{"id": "<the id given>", "keywords": ["6-10 short resume keywords/phrases"], \
-"skills": "one sentence naming the likely required skills"}
+{"id": "<the id given>", "keywords": ["6-12 short resume keywords/phrases"], \
+"skills": "one or two sentences naming the concrete required skills, \
+qualifications and tools"}
 
 Keywords should be terms a recruiter or resume screener would look for, e.g. \
 "user research", "SQL", "roadmap prioritisation" -- not fluff like "hard working".
@@ -90,7 +96,8 @@ Listings:
 """
 
 
-def enrich_with_model(postings: Sequence[Posting], api_key: str) -> Dict[str, dict]:
+def enrich_with_model(postings: Sequence[Posting], api_key: str,
+                      descriptions: Optional[Dict[str, str]] = None) -> Dict[str, dict]:
     if not postings:
         return {}
     try:
@@ -99,10 +106,17 @@ def enrich_with_model(postings: Sequence[Posting], api_key: str) -> Dict[str, di
         log.warning("anthropic SDK missing; using fallback keywords")
         return {}
 
-    lines = "\n".join(
-        f'- id={p.job_id} | title={p.title!r} | company={p.company!r} | category={p.category!r}'
-        for p in postings
-    )
+    descriptions = descriptions or {}
+    blocks = []
+    for p in postings:
+        block = (f'- id={p.job_id} | title={p.title!r} | company={p.company!r} '
+                 f'| category={p.category!r}')
+        body = descriptions.get(p.job_id)
+        if body:
+            blocks.append(f"{block}\n  DESCRIPTION: {body}\n")
+        else:
+            blocks.append(block)
+    lines = "\n".join(blocks)
     try:
         client = anthropic.Anthropic(api_key=api_key)
         resp = client.messages.create(
@@ -125,15 +139,30 @@ def enrich_with_model(postings: Sequence[Posting], api_key: str) -> Dict[str, di
     return {r["id"]: r for r in rows if isinstance(r, dict) and "id" in r}
 
 
-def apply_fallback(p: Posting) -> None:
+def apply_fallback(p: Posting, sourced: bool = False) -> None:
+    """Generic keywords for when the model pass did not run or did not answer.
+
+    ``sourced`` only changes the note: it records whether a real description was
+    available, so a row's provenance is visible in the database.
+    """
     p.resume_keywords = list(FALLBACK_KEYWORDS.get(p.category, FALLBACK_KEYWORDS["Product Management"]))
-    p.skills = [GENERIC_SKILLS]
+    p.skills = [DESC_UNUSED_SKILLS if sourced else GENERIC_SKILLS]
 
 
-def enrich(postings: Sequence[Posting]) -> None:
+def enrich(postings: Sequence[Posting], cfg: Optional[dict] = None) -> None:
     """Fill keywords and skills in place, model-first with a keyword fallback."""
+    cfg = cfg or {}
     api_key = os.environ.get("ANTHROPIC_API_KEY", "")
-    results = enrich_with_model(postings, api_key) if api_key else {}
+
+    descriptions: Dict[str, str] = {}
+    if cfg.get("fetch_descriptions", True):
+        descriptions = jobdesc.fetch_all(
+            postings,
+            max_chars=cfg.get("description_max_chars", 6000),
+            workers=cfg.get("description_workers", 6),
+        )
+
+    results = enrich_with_model(postings, api_key, descriptions) if api_key else {}
 
     for p in postings:
         row = results.get(p.job_id)
@@ -142,4 +171,4 @@ def enrich(postings: Sequence[Posting]) -> None:
             skills = row.get("skills")
             p.skills = [str(skills)] if skills else [GENERIC_SKILLS]
         else:
-            apply_fallback(p)
+            apply_fallback(p, sourced=bool(descriptions.get(p.job_id)))

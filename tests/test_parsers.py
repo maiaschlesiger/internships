@@ -15,6 +15,7 @@ from radar.classify import rule_verdict  # noqa: E402
 from radar.models import Posting  # noqa: E402
 from radar.sources import internlist  # noqa: E402
 from radar.sources.jobright import parse_readme  # noqa: E402
+from radar import jobdesc  # noqa: E402
 
 CFG = yaml.safe_load((Path(__file__).resolve().parent.parent / "config.yaml").read_text())
 
@@ -130,6 +131,41 @@ class TestInternListHelpers(unittest.TestCase):
 
     def test_malformed_html_returns_empty_not_raises(self):
         self.assertEqual(internlist._from_html("<table><tr><td>broken", "pm"), [])
+
+
+class TestJobDescription(unittest.TestCase):
+    def test_strips_script_style_and_chrome(self):
+        html = ("<html><head><style>.a{color:red}</style></head><body>"
+                "<nav>Home About</nav><script>var x=1;</script>"
+                "<h2>Responsibilities</h2><li>Own the product roadmap</li>"
+                "<li>Analyse results in SQL</li><footer>(c) 2026</footer></body></html>")
+        text = jobdesc.html_to_text(html)
+        self.assertIn("roadmap", text)
+        self.assertIn("SQL", text)
+        self.assertNotIn("var x", text)
+        self.assertNotIn("color:red", text)
+        self.assertNotIn("Home About", text)
+
+    def test_recovers_description_from_js_only_page(self):
+        """Workday/Ashby-style pages ship an empty DOM plus a JSON payload."""
+        html = (r'<html><body></body><script>{"jobDescription":'
+                r'"\u003cp\u003eBuild product specs with engineers on the roadmap. '
+                r'Requires SQL and strong written communication. Figma preferred '
+                r'for this internship role.\u003c/p\u003e"}</script></html>')
+        text = jobdesc._from_embedded_json(html)
+        self.assertIn("product specs", text)
+        self.assertIn("SQL", text)
+        self.assertNotIn("<p>", text, "HTML entities should be decoded and stripped")
+
+    def test_embedded_threshold_does_not_discard_short_real_descriptions(self):
+        """Two thresholds were both set at 200, silently dropping valid text."""
+        body = "Own the roadmap and ship features. " * 4  # ~140 chars
+        html = '<html><script>{"description":"%s"}</script></html>' % body
+        self.assertTrue(jobdesc._from_embedded_json(html))
+
+    def test_malformed_payload_returns_empty_not_raises(self):
+        self.assertEqual(jobdesc._from_embedded_json(r'{"description":"\uZZZZ'), "")
+        self.assertEqual(jobdesc.html_to_text("<div><p>unclosed"), "unclosed")
 
 
 if __name__ == "__main__":

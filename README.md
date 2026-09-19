@@ -71,12 +71,26 @@ Generate a key in Apollo under **Settings → Integrations → API**.
 | My Resume PDF | empty files property — drag your tailored PDF onto the row |
 | Term / Category / Source / Job ID | Job ID is the dedup key; don't delete that column |
 
-### Caveat on keywords and skills
+### Where keywords and skills come from
 
-The sources publish a title, company and location — **not the job description**.
-Resume keywords and skill requirements are inferred from the role title. They are
-a reasonable starting point for tailoring, not a substitute for opening the
-listing. The Application Portal column is what gets you to the real text.
+Each new listing's application page is fetched and the posting text extracted,
+so keywords and skill requirements come from the employer's own wording — which
+is what a resume screener matches against. Greenhouse, Lever and SmartRecruiters
+serve usable HTML; Workday is asked for JSON instead; JS-only pages are mined for
+an embedded payload.
+
+When a page can't be read (dead link, login wall, no embedded payload), the row
+falls back to inferring from the role title and the Skill Requirements cell says
+so. Set `fetch_descriptions: false` in `config.yaml` to skip the fetch entirely.
+
+Without `ANTHROPIC_API_KEY` the description is fetched but never summarised, and
+every row gets the same generic keyword list.
+
+### Keeping the hourly schedule alive
+
+GitHub **disables scheduled workflows in a repository with no pushes for 60
+days**, and delays `schedule` runs under load — an hourly cron can drift or skip.
+If this goes quiet, check the Actions tab: re-enabling the workflow is one click.
 
 ## Sources
 

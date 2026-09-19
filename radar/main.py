@@ -127,7 +127,7 @@ def main(argv=None) -> int:
         return 0
 
     enrich.resolve_portal(postings)
-    enrich.enrich(postings)
+    enrich.enrich(postings, cfg)
     apollo.find_recruiters(postings)
 
     if args.dry_run:

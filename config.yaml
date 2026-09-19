@@ -98,5 +98,13 @@ sources:
 # Only listings first seen within this many hours are written.
 window_hours: 24
 
+# Fetch the real job description from each application page and derive keywords
+# and skill requirements from it, instead of inferring from the role title.
+# Costs one HTTP request per new listing; only ever runs on listings that
+# already passed dedup and the relevance filter.
+fetch_descriptions: true
+description_max_chars: 6000
+description_workers: 6
+
 # Set false to skip the Claude adjudication pass entirely (keyword rules only).
 use_model_for_uncertain: true
