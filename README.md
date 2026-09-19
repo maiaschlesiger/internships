@@ -59,6 +59,23 @@ repos' commit history. Without it, the first run would stamp every historical
 listing as "just now" and the 24-hour filter would let through days of backlog.
 **Only do this once.** Every run after it is a plain hourly run.
 
+### Recruiter contacts
+
+Most of this column fills for free. Employers routinely print a hiring address
+in the posting itself — a university recruiting inbox, an accommodations
+contact, sometimes a named recruiter — and the application page is already being
+fetched, so those are taken directly. Applicant-tracking vendors' own addresses,
+automated senders and legal inboxes are discarded, a hiring-function local part
+wins over a generic one, and nothing is ever guessed or constructed.
+
+Apollo is then asked only about listings that came back with nothing, capped by
+`apollo_max_lookups` in `config.yaml` because it bills credits per reveal.
+
+There is no free database of recruiter emails. That data is the product Apollo,
+ZoomInfo and Hunter sell; the open-source projects in this space chain together
+other services' free tiers rather than holding data of their own. Scraping what
+employers publish is the free option, and it is a real one.
+
 ### 4. Apollo (optional)
 
 Generate a key in Apollo under **Settings → Integrations → API**.
@@ -78,7 +95,7 @@ Generate a key in Apollo under **Settings → Integrations → API**.
 | Skill Requirements | same caveat |
 | Posted | best available — see below |
 | Hours Since Posted | formula, `dateBetween(now(), prop("Posted"), "hours")` — recalculates whenever you open the database |
-| Recruiter Contact | Apollo, if a key is set |
+| Recruiter Contact | the address printed in the posting; Apollo only fills gaps |
 | Applied | select: Not applied / Applying / Applied / Interviewing / Offer / Rejected |
 | My Resume PDF | empty files property — drag your tailored PDF onto the row |
 | Term / Category / Source / Job ID | Job ID is the dedup key; don't delete that column |

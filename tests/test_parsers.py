@@ -338,6 +338,38 @@ class TestRequirementsExtraction(unittest.TestCase):
         self.assertTrue(out.endswith("..."))
 
 
+class TestContactEmailExtraction(unittest.TestCase):
+    def test_prefers_a_hiring_inbox_over_a_generic_one(self):
+        html = "<p>press@acme.com</p><p>universityrecruiting@acme.com</p>"
+        self.assertEqual(jobdesc.extract_contact_emails(html),
+                         "universityrecruiting@acme.com")
+
+    def test_reads_a_mailto_link(self):
+        self.assertEqual(
+            jobdesc.extract_contact_emails('<a href="mailto:Campus@Acme.com">apply</a>'),
+            "campus@acme.com")
+
+    def test_discards_the_ats_vendors_own_addresses(self):
+        html = "<p>noreply@greenhouse.io support@lever.co</p><p>campus@acme.com</p>"
+        self.assertEqual(jobdesc.extract_contact_emails(html), "campus@acme.com")
+
+    def test_discards_legal_and_automated_inboxes(self):
+        self.assertEqual(
+            jobdesc.extract_contact_emails("<p>privacy@acme.com legal@acme.com</p>"), "")
+
+    def test_ignores_asset_filenames_that_look_like_addresses(self):
+        self.assertEqual(jobdesc.extract_contact_emails('<img src="logo@2x.png">'), "")
+
+    def test_falls_back_to_a_plausible_personal_address(self):
+        self.assertEqual(
+            jobdesc.extract_contact_emails("<p>Contact jane.doe@acme.com</p>"),
+            "jane.doe@acme.com")
+
+    def test_nothing_found_returns_empty(self):
+        self.assertEqual(jobdesc.extract_contact_emails("<p>no address here</p>"), "")
+        self.assertEqual(jobdesc.extract_contact_emails(""), "")
+
+
 class TestSkillsFallback(unittest.TestCase):
     def test_scraped_requirements_are_used_verbatim(self):
         p = Posting(job_id="1", title="PM Intern", company="Acme", source="s",

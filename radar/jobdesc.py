@@ -226,6 +226,60 @@ def extract_requirements(text: str, max_chars: int = 900) -> str:
     return out[:max_chars].rstrip(" ;") + ("..." if len(out) > max_chars else "")
 
 
+EMAIL_RE = re.compile(r"[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}")
+
+# A local part naming a hiring function -- the ones actually worth writing to.
+RECRUITING_HINTS = ("recruit", "talent", "campus", "university", "intern",
+                    "career", "jobs", "hiring", "staffing", "earlycareer",
+                    "early-career", "people", "hr@", "hr.")
+# Never useful: automated senders, legal and compliance inboxes.
+JUNK_LOCAL = ("noreply", "no-reply", "donotreply", "do-not-reply", "mailer",
+              "postmaster", "webmaster", "abuse", "privacy", "legal",
+              "compliance", "security", "dmca", "unsubscribe", "example",
+              "sample", "test@", "you@", "name@", "email@", "sentry")
+# The applicant tracking vendor's own addresses, not the employer's.
+VENDOR_DOMAINS = ("greenhouse.io", "lever.co", "myworkdayjobs.com", "workday.com",
+                  "icims.com", "smartrecruiters.com", "ashbyhq.com", "jobvite.com",
+                  "taleo.net", "successfactors", "oraclecloud.com", "brassring.com",
+                  "eightfold.ai", "sentry.io", "wixpress.com", "schema.org",
+                  "w3.org", "example.com", "sentry-next.wixpress.com", "jobright.ai",
+                  "simplify.jobs", "dreamworkhq.com", "godaddy.com")
+
+
+def extract_contact_emails(html: str) -> str:
+    """Return the most useful contact address printed in a posting, or "".
+
+    Employers routinely publish a hiring address in the posting itself -- a
+    university recruiting inbox, an accommodations contact, sometimes a named
+    recruiter. It is free, already on a page being fetched, and more reliable
+    than anything inferred, so it is worth preferring over a paid lookup.
+
+    Addresses belonging to the applicant tracking vendor, and automated or
+    legal inboxes, are discarded. A hiring-function local part wins over a
+    generic one; nothing is ever guessed or constructed.
+    """
+    if not html:
+        return ""
+    seen, best_generic = set(), ""
+    for match in EMAIL_RE.finditer(html):
+        email = match.group(0).strip(".,;:)").lower()
+        if email in seen:
+            continue
+        seen.add(email)
+        if any(v in email for v in VENDOR_DOMAINS):
+            continue
+        if any(j in email for j in JUNK_LOCAL):
+            continue
+        # Image and asset filenames occasionally match the pattern.
+        if email.rsplit(".", 1)[-1] in ("png", "jpg", "jpeg", "gif", "svg", "webp", "css", "js"):
+            continue
+        if any(h in email for h in RECRUITING_HINTS):
+            return email          # a hiring inbox: stop looking
+        if not best_generic:
+            best_generic = email  # keep the first plausible one as a fallback
+    return best_generic
+
+
 @dataclass
 class PageData:
     """What one fetch of an application page yielded."""
@@ -233,6 +287,7 @@ class PageData:
     posted_at: Optional[datetime] = None
     posted_precision: str = "unknown"
     requirements: str = ""
+    contact_email: str = ""
 
 
 def fetch_one(url: str, session: requests.Session, timeout: int = 20,
@@ -253,7 +308,8 @@ def fetch_one(url: str, session: requests.Session, timeout: int = 20,
                 if body:
                     when, precision = extract_posted_at(resp.text)
                     plain = html_to_text(body)[:max_chars]
-                    return PageData(plain, when, precision, extract_requirements(plain))
+                    return PageData(plain, when, precision, extract_requirements(plain),
+                                    extract_contact_emails(resp.text))
         except (requests.RequestException, json.JSONDecodeError, AttributeError):
             pass  # fall through to the HTML path
 
@@ -277,7 +333,8 @@ def fetch_one(url: str, session: requests.Session, timeout: int = 20,
     if len(text) < 200:
         text = ""
     text = text[:max_chars]
-    return PageData(text, when, precision, extract_requirements(text))
+    return PageData(text, when, precision, extract_requirements(text),
+                    extract_contact_emails(html))
 
 
 def fetch_all(postings: Sequence[Posting], max_chars: int = 6000,
@@ -309,11 +366,13 @@ def fetch_all(postings: Sequence[Posting], max_chars: int = 6000,
             if data.text or data.posted_at:
                 out[job_id] = data
 
+    with_email = sum(1 for d in out.values() if d.contact_email)
     with_reqs = sum(1 for d in out.values() if d.requirements)
     with_text = sum(1 for d in out.values() if d.text)
     with_date = sum(1 for d in out.values() if d.posted_at)
     exact = sum(1 for d in out.values() if d.posted_precision == "scraped")
     log.info("fetched %d/%d pages: %d with description, %d with a requirements "
-             "section, %d with a posted date (%d of those with a time of day)",
-             len(out), len(postings), with_text, with_reqs, with_date, exact)
+             "section, %d with a contact email, %d with a posted date "
+             "(%d of those with a time of day)",
+             len(out), len(postings), with_text, with_reqs, with_email, with_date, exact)
     return out

@@ -58,12 +58,30 @@ def _search(session: requests.Session, company: str) -> Optional[dict]:
     return people[0] if people else None
 
 
-def find_recruiters(postings: Sequence[Posting]) -> None:
-    """Attach a recruiter email per posting, in place. No key -> no-op."""
+def find_recruiters(postings: Sequence[Posting], max_lookups: int = 0) -> None:
+    """Fill any recruiter emails the postings themselves did not supply.
+
+    Listings that already carry a contact address scraped from the job posting
+    are skipped -- that address is free, published by the employer for exactly
+    this purpose, and better than an inferred one. Apollo is only asked about
+    what is left, and only when a key is configured.
+
+    ``max_lookups`` caps the number of companies queried per run, since Apollo
+    bills credits per reveal. 0 means no cap.
+    """
     api_key = os.environ.get("APOLLO_API_KEY", "")
     if not api_key:
-        log.info("APOLLO_API_KEY unset; skipping recruiter lookup")
+        missing = sum(1 for p in postings if not p.recruiter)
+        log.info("APOLLO_API_KEY unset; %d listings have no contact email from "
+                 "their posting", missing)
         return
+
+    postings = [p for p in postings if not p.recruiter]
+    if not postings:
+        log.info("every listing already has a contact email from its posting")
+        return
+    if max_lookups:
+        postings = postings[:max_lookups]
 
     session = requests.Session()
     session.headers.update({
@@ -98,5 +116,9 @@ def find_recruiters(postings: Sequence[Posting]) -> None:
         p.recruiter = email
         time.sleep(0.5)
 
+        if max_lookups and len(cache) >= max_lookups:
+            log.info("apollo lookup cap of %d companies reached", max_lookups)
+            break
+
     found = sum(1 for p in postings if p.recruiter)
-    log.info("recruiter emails resolved for %d/%d listings", found, len(postings))
+    log.info("apollo resolved %d/%d remaining listings", found, len(postings))

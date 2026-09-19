@@ -142,5 +142,9 @@ fetch_descriptions: true
 description_max_chars: 6000
 description_workers: 6
 
+# Apollo is only asked about listings whose posting printed no contact address.
+# It bills credits per reveal, so cap the companies queried per run (0 = no cap).
+apollo_max_lookups: 15
+
 # Set false to skip the Claude adjudication pass entirely (keyword rules only).
 use_model_for_uncertain: true

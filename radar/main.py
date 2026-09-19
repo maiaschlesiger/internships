@@ -95,6 +95,18 @@ def apply_scraped_dates(postings, pages) -> None:
         log.info("posting time taken from the employer's page for %d listings", upgraded)
 
 
+def apply_scraped_emails(postings, pages) -> None:
+    """Use the contact address the employer printed in the posting."""
+    filled = 0
+    for p in postings:
+        data = pages.get(p.job_id)
+        if data and data.contact_email and not p.recruiter:
+            p.recruiter = data.contact_email
+            filled += 1
+    if filled:
+        log.info("contact email taken from the posting for %d listings", filled)
+
+
 def jobdesc_rank(precision: str) -> int:
     return dedupe.PRECISION_RANK.get(precision, 9)
 
@@ -186,9 +198,10 @@ def main(argv=None) -> int:
             workers=cfg.get("description_workers", 6),
         )
         apply_scraped_dates(postings, pages)
+        apply_scraped_emails(postings, pages)
 
     enrich.enrich(postings, cfg, pages)
-    apollo.find_recruiters(postings)
+    apollo.find_recruiters(postings, max_lookups=cfg.get("apollo_max_lookups", 0))
 
     if args.dry_run:
         print(f"\n--- dry run: {len(postings)} listings would be written ---")
