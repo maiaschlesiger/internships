@@ -19,11 +19,9 @@ job id across all sources. The value here is breadth -- the repos are explicitly
 "a fraction of available intern positions" while the site advertises tens of
 thousands.
 
-STATUS: the URL construction above is read directly from the live page and is
-correct. What the embed endpoint *returns* has not been observed, because
-jobright.ai is blocked by network policy where this was written. The response
-handling below covers the realistic shapes and degrades to an empty list.
-Run tools/probe_internlist.py from a runner to capture the real response.
+The embed serves server-rendered HTML with every listing in a __NEXT_DATA__
+script block at ``props.pageProps.initialJobs``, 50 per feed. That was
+confirmed against captured responses for all seven feeds.
 """
 
 from __future__ import annotations
@@ -129,65 +127,107 @@ def _pick(d: dict, *names: str) -> str:
         v = d.get(n)
         if isinstance(v, str) and v.strip():
             return v.strip()
-        if isinstance(v, (int, float)):
-            return str(v)
     return ""
 
 
-def _walk_for_listings(node, out: List[dict], depth: int = 0) -> None:
-    """Find listing-shaped dicts anywhere in a JSON payload.
+def _clean_qualifications(raw: str) -> str:
+    """Flatten jobright's numbered qualifications blob into one line."""
+    if not raw:
+        return ""
+    parts = re.split(r"\s*\d{1,2}\.\s+", raw)
+    items = [re.sub(r"\s+", " ", part).strip(" ;.") for part in parts if part.strip()]
+    return "; ".join(items)[:1800]
 
-    The embed's response envelope is unknown, so rather than guess at a key path
-    this looks for any object carrying both a title-ish and a company-ish field.
-    """
-    if depth > 8:
-        return
-    if isinstance(node, dict):
-        has_title = any(k in node for k in ("jobTitle", "title", "job_title", "positionName"))
-        has_company = any(k in node for k in ("companyName", "company", "employerName", "company_name"))
-        if has_title and has_company:
-            out.append(node)
-            return
-        for value in node.values():
-            _walk_for_listings(value, out, depth + 1)
-    elif isinstance(node, list):
-        for item in node:
-            _walk_for_listings(item, out, depth + 1)
+
+def _notes_from(job: dict) -> str:
+    """Facts the feed supplies outright that no other source does."""
+    notes = []
+    salary = _pick(job, "salary")
+    if salary and salary.upper() not in ("N/A", "NA", "NOT SPECIFIED"):
+        notes.append("Pay: " + salary)
+    grad = _pick(job, "graduateTime")
+    if grad:
+        notes.append("Graduates: " + grad.replace("/", " or "))
+    if _pick(job, "h1bSponsored").lower() == "no":
+        notes.append("No visa sponsorship")
+    size = _pick(job, "companySize")
+    if size:
+        notes.append("Company size: " + size)
+    return " \u00b7 ".join(notes)
 
 
 def postings_from_payload(payload, feed: str) -> List[Posting]:
-    """Map whatever JSON the embed returns onto Postings."""
-    found: List[dict] = []
-    _walk_for_listings(payload, found)
+    """Map the embed's __NEXT_DATA__ payload onto Postings.
+
+    Job objects live at ``props.pageProps.initialJobs`` and carry, per listing:
+    id, title, company, location, applyUrl, postedDate, workModel, salary,
+    qualifications, graduateTime, h1bSponsored, companySize.
+
+    Two of those are better than anything the other sources publish.
+    ``postedDate`` is epoch milliseconds -- a real timestamp with a time of day,
+    where every markdown list gives a bare date at best. ``qualifications`` is
+    the employer's requirements already extracted, so these rows do not need
+    their application page read to fill the Skill Requirements column.
+
+    ``applyUrl`` points back at jobright rather than the employer, so it is
+    stored as the listing URL and enrich.resolve_portal follows it through to
+    the real applicant tracking system.
+    """
+    jobs = payload
+    if isinstance(payload, dict):
+        jobs = (payload.get("props", {}).get("pageProps", {}).get("initialJobs")
+                or payload.get("initialJobs"))
+    if not isinstance(jobs, list):
+        log.warning("intern-list %s: payload had no initialJobs list", feed)
+        return []
 
     out: List[Posting] = []
-    for item in found:
-        title = _pick(item, "jobTitle", "title", "job_title", "positionName")
-        company = _pick(item, "companyName", "company", "employerName", "company_name")
+    for job in jobs:
+        if not isinstance(job, dict):
+            continue
+        title = _pick(job, "title")
+        company = _pick(job, "company")
         if not title or not company:
             continue
-        url = _pick(item, "applyLink", "jobUrl", "url", "link", "apply_url", "originalUrl")
-        native_id = _pick(item, "jobId", "id", "job_id")
-        posted = _parse_timestamp(
-            _pick(item, "publishTimeDesc", "publishTime", "postedAt", "postDate",
-                  "createTime", "publishedAt")
-        )
-        out.append(Posting(
-            job_id=(native_id if JOBRIGHT_ID_RE.fullmatch(native_id) else stable_id(feed, url or title + company)),
+
+        posted, precision = None, "unknown"
+        raw_date = job.get("postedDate")
+        if isinstance(raw_date, (int, float)) and raw_date > 0:
+            seconds = raw_date / 1000 if raw_date > 1_000_000_000_000 else raw_date
+            try:
+                posted = datetime.fromtimestamp(seconds, tz=timezone.utc)
+                # Epoch milliseconds carry a real time of day, which outranks
+                # both the commit-derived estimate and a bare calendar date.
+                precision = "scraped"
+            except (OverflowError, OSError, ValueError):
+                posted = None
+
+        job_id = _pick(job, "id", "jobId")
+        apply_url = _pick(job, "applyUrl")
+        qualifications = _clean_qualifications(_pick(job, "qualifications"))
+
+        posting = Posting(
+            # jobright's own 24-hex id, so a listing seen here and in the
+            # jobright GitHub repos collapses to one row.
+            job_id=job_id if JOBRIGHT_ID_RE.fullmatch(job_id) else stable_id(feed, apply_url or title + company),
             title=title,
             company=company,
             source=f"intern-list:{feed}",
-            listing_url=url,
-            location=_pick(item, "jobLocation", "location", "city", "workLocation"),
-            work_model=_pick(item, "workModel", "workday", "remote"),
+            listing_url=apply_url,
+            location=_pick(job, "location"),
+            work_model=_pick(job, "workModel"),
             posted_at=posted,
-            posted_precision="exact" if posted else "unknown",
-        ))
+            posted_precision=precision,
+            notes=_notes_from(job),
+        )
+        if qualifications:
+            posting.skills = [qualifications]
+        out.append(posting)
     return out
 
 
 def _embedded_json(html: str):
-    """Pull the largest JSON blob out of a server-rendered app shell."""
+    """Pull the Next.js payload out of the server-rendered embed page."""
     for pattern in (r'__NEXT_DATA__[^>]*>(\{.*?\})</script>',
                     r'window\.__INITIAL_STATE__\s*=\s*(\{.*?\});',
                     r'<script[^>]*type="application/json"[^>]*>(\{.*?\})</script>'):
@@ -220,21 +260,18 @@ def fetch(feed: str, session: Optional[requests.Session] = None) -> List[Posting
         log.warning("intern-list %s unreachable (%s)", feed, exc)
         return []
 
-    payload = None
-    if "json" in resp.headers.get("Content-Type", ""):
+    # The embed serves server-rendered HTML with the listings in __NEXT_DATA__.
+    payload = _embedded_json(resp.text)
+    if payload is None and "json" in resp.headers.get("Content-Type", ""):
         try:
             payload = resp.json()
         except json.JSONDecodeError:
             payload = None
-    if payload is None:
-        payload = _embedded_json(resp.text)
 
     if payload is None:
-        log.warning(
-            "intern-list %s: %s returned no parseable JSON (%d bytes). The embed is "
-            "probably client-rendered; run tools/probe_internlist.py to capture the "
-            "real response and its XHR endpoint.", feed, url, len(resp.text),
-        )
+        log.warning("intern-list %s: no __NEXT_DATA__ in %s (%d bytes); the embed's "
+                    "markup may have changed -- run tools/probe_internlist.py",
+                    feed, url, len(resp.text))
         return []
 
     postings = postings_from_payload(payload, feed)

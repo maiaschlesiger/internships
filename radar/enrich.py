@@ -178,6 +178,12 @@ def apply_fallback(p: Posting, requirements: str = "") -> None:
     Only a posting whose page could not be read gets the generic note.
     """
     p.resume_keywords = list(FALLBACK_KEYWORDS.get(p.category, FALLBACK_KEYWORDS["Product Management"]))
+    # A source that already supplied structured requirements (intern-list ships
+    # a qualifications field) beats anything scraped or generic -- never
+    # overwrite it with a placeholder.
+    existing = p.skills[0] if p.skills else ""
+    if existing and existing != GENERIC_SKILLS:
+        return
     p.skills = [requirements] if requirements else [GENERIC_SKILLS]
 
 

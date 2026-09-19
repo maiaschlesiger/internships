@@ -115,6 +115,55 @@ class TestClassifierRules(unittest.TestCase):
         self.assertEqual(v.term, "Unspecified")
 
 
+class TestInternListPayload(unittest.TestCase):
+    """The embed serves __NEXT_DATA__ with listings at props.pageProps.initialJobs."""
+
+    PAYLOAD = {"props": {"pageProps": {"initialJobs": [{
+        "id": "6aada2723dbb1f8967ceeb25",
+        "title": "Category Management Intern",
+        "company": "Gordon Food Service",
+        "location": "Wyoming, MI",
+        "applyUrl": "https://jobright.ai/jobs/info/6aada2723dbb1f8967ceeb25?utm_source=1099",
+        "postedDate": 1789746689000,
+        "workModel": "On Site",
+        "salary": "$25-$25/hr",
+        "graduateTime": "2027-August / 2028-July",
+        "h1bSponsored": "No",
+        "companySize": "10000+",
+        "qualifications": "1. Pursuing a Bachelor's degree 2. Proficiency in Excel",
+    }]}}}
+
+    def setUp(self):
+        self.row = internlist.postings_from_payload(self.PAYLOAD, "pm")[0]
+
+    def test_uses_jobrights_own_id_so_it_dedups_with_the_repos(self):
+        self.assertEqual(self.row.job_id, "6aada2723dbb1f8967ceeb25")
+
+    def test_epoch_millis_become_an_exact_timestamp(self):
+        """This feed is the only source publishing a real time of day."""
+        self.assertEqual(self.row.posted_precision, "scraped")
+        self.assertEqual(self.row.posted_at.year, 2026)
+        self.assertIsNotNone(self.row.posted_at.tzinfo)
+
+    def test_qualifications_are_flattened_into_skills(self):
+        self.assertIn("Bachelor", self.row.skills[0])
+        self.assertIn("Excel", self.row.skills[0])
+        self.assertNotIn("1.", self.row.skills[0])
+
+    def test_notes_carry_pay_graduation_window_and_sponsorship(self):
+        self.assertIn("$25-$25/hr", self.row.notes)
+        self.assertIn("2028-July", self.row.notes)
+        self.assertIn("No visa sponsorship", self.row.notes)
+
+    def test_applyurl_is_kept_as_the_listing_for_redirect_resolution(self):
+        """It points at jobright, so resolve_portal must follow it."""
+        self.assertIn("jobright.ai", self.row.listing_url)
+
+    def test_payload_without_jobs_returns_empty(self):
+        self.assertEqual(internlist.postings_from_payload({"props": {}}, "pm"), [])
+        self.assertEqual(internlist.postings_from_payload({"totalCount": 30921}, "pm"), [])
+
+
 class TestInternListHelpers(unittest.TestCase):
     def test_ids_are_stable_across_processes(self):
         """hash() is salted per run; unstable ids would re-append every row hourly."""
@@ -141,20 +190,11 @@ class TestInternListHelpers(unittest.TestCase):
     def test_unknown_feed_returns_empty_not_raises(self):
         self.assertEqual(internlist.fetch("not-a-feed"), [])
 
-    def test_maps_listing_payload_regardless_of_nesting(self):
-        payload = {"result": {"data": {"jobList": [
-            {"jobTitle": "Product Management Intern", "companyName": "Acme",
-             "jobLocation": "New York, NY", "jobId": "6aad7a803dbb1f8967cedb27",
-             "applyLink": "https://acme.com/apply", "publishTimeDesc": "3 hours ago"}
-        ]}}}
-        rows = internlist.postings_from_payload(payload, "pm")
-        self.assertEqual(len(rows), 1)
-        self.assertEqual(rows[0].company, "Acme")
-        self.assertEqual(rows[0].job_id, "6aad7a803dbb1f8967cedb27")
-        self.assertIsNotNone(rows[0].posted_at)
-
-    def test_payload_without_listings_returns_empty(self):
-        self.assertEqual(internlist.postings_from_payload({"totalCount": 30921}, "pm"), [])
+    def test_source_qualifications_survive_the_enrich_fallback(self):
+        p = Posting(job_id="1", title="PM Intern", company="Acme", source="s",
+                    category="Product Management", skills=["Pursuing a BS; Excel"])
+        enrich.apply_fallback(p, requirements="")
+        self.assertEqual(p.skills, ["Pursuing a BS; Excel"])
 
 
 class TestJobDescription(unittest.TestCase):

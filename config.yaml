@@ -126,10 +126,16 @@ sources:
     - "SimplifyJobs/Summer2027-Internships"
     - "dreamworkhq/Tech-Internships-2027"
 
+  # Each feed returns 50 listings with exact posting timestamps, structured
+  # qualifications and salary. "swe" is deliberately omitted: every row would be
+  # rejected by reject_categories anyway.
   internlist_feeds:
     - "pm"
     - "cd"
     - "cst"
+    - "ba"
+    - "da"
+    - "me"
 
 # Only listings first seen within this many hours are written.
 window_hours: 24
