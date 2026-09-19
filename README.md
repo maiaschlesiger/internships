@@ -64,12 +64,30 @@ Generate a key in Apollo under **Settings → Integrations → API**.
 | Application Portal | the listing URL followed through to the employer's own ATS page where the redirect can be resolved |
 | Resume Keywords | multi-select, **inferred from the role title** — see caveat below |
 | Skill Requirements | same caveat |
-| Posted | real timestamp, not the source's day-granularity date |
+| Posted | best available — see below |
 | Hours Since Posted | formula, `dateBetween(now(), prop("Posted"), "hours")` — recalculates whenever you open the database |
 | Recruiter Contact | Apollo, if a key is set |
 | Applied | select: Not applied / Applying / Applied / Interviewing / Offer / Rejected |
 | My Resume PDF | empty files property — drag your tailored PDF onto the row |
 | Term / Category / Source / Job ID | Job ID is the dedup key; don't delete that column |
+
+### Where the posting time comes from
+
+Every list publishes day granularity at best ("Aug 21", "3d"), which is useless
+for a 24-hour window. Three estimates are used, most precise first:
+
+1. **`scraped`** — the employer's own `datePosted` from the schema.org
+   JobPosting block on the application page, *when it includes a time of day*.
+2. **`commit`** — for the jobright repos, the commit that first introduced the
+   listing. They commit roughly hourly, so this is good to about 70 minutes.
+3. **`first_seen`** — the first run that observed the listing, accurate to the
+   cron interval.
+
+A bare calendar date from a page never replaces a better estimate. Be aware that
+**most applicant tracking systems do not publish the hour a job went live** —
+`datePosted` is usually just a date. "What hour it was posted" is frequently not
+a fact that exists publicly, so the `commit` estimate is often the most precise
+figure available.
 
 ### Where keywords and skills come from
 
@@ -94,9 +112,32 @@ If this goes quiet, check the Actions tab: re-enabling the workflow is one click
 
 ## Sources
 
-Four jobright repos (product management, design, business analyst, data
-analysis) are scraped and cross-deduplicated. They publish a markdown table on
-the `master` branch — not `main`, which returns a silent 404.
+Seven lists, all cross-deduplicated against each other:
+
+| Source | Format | Notes |
+|---|---|---|
+| 4 × jobright-ai repos | markdown table, `master` branch | `main` returns a silent 404 |
+| vanshb03/Summer2027-Internships | markdown table, `main` | links straight to the employer ATS |
+| SimplifyJobs/Summer2027-Internships | **HTML** `<tr>` table, `master` | ~1,700 rows |
+| dreamworkhq/Tech-Internships-2027 | markdown table, `main` | links via its own redirector |
+
+The community lists mark eligibility with emoji, per their own legends. Rows
+marked 🔒 (application closed) or 🎓 (Master's/PhD/MBA required) are dropped at
+parse time rather than being left for the relevance filter.
+
+Software engineering roles are excluded — see `reject_categories` in
+`config.yaml`. This is about the role, not the technology: a *technical product*
+or *product analyst* role still counts, and "Software Product Management Intern"
+is correctly kept.
+
+### Deduplication
+
+The same job routinely appears on several lists. `radar/dedupe.py` collapses
+them in two passes: by canonical application URL with tracking parameters
+stripped, then by a fingerprint of company, normalised title and city — which is
+what catches lists that link through their own redirector instead of the
+employer. A merged row keeps the most precise timestamp and prefers a real
+employer URL over a redirect.
 
 `intern-list.com` support is **written but unverified**. That host was blocked by
 network policy in the environment this was built in, so its real markup was never

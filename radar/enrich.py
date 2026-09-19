@@ -149,18 +149,16 @@ def apply_fallback(p: Posting, sourced: bool = False) -> None:
     p.skills = [DESC_UNUSED_SKILLS if sourced else GENERIC_SKILLS]
 
 
-def enrich(postings: Sequence[Posting], cfg: Optional[dict] = None) -> None:
-    """Fill keywords and skills in place, model-first with a keyword fallback."""
+def enrich(postings: Sequence[Posting], cfg: Optional[dict] = None,
+           pages: Optional[Dict[str, "jobdesc.PageData"]] = None) -> None:
+    """Fill keywords and skills in place, model-first with a keyword fallback.
+
+    ``pages`` comes from jobdesc.fetch_all, which main runs once so the same
+    request serves both the posting timestamp and the description.
+    """
     cfg = cfg or {}
     api_key = os.environ.get("ANTHROPIC_API_KEY", "")
-
-    descriptions: Dict[str, str] = {}
-    if cfg.get("fetch_descriptions", True):
-        descriptions = jobdesc.fetch_all(
-            postings,
-            max_chars=cfg.get("description_max_chars", 6000),
-            workers=cfg.get("description_workers", 6),
-        )
+    descriptions = {jid: data.text for jid, data in (pages or {}).items() if data.text}
 
     results = enrich_with_model(postings, api_key, descriptions) if api_key else {}
 

@@ -18,10 +18,10 @@ from typing import List
 
 import yaml
 
-from . import apollo, classify, enrich
+from . import apollo, classify, dedupe, enrich, jobdesc
 from .models import Posting
 from .notion_sink import Notion
-from .sources import internlist, jobright
+from .sources import ghlist, internlist, jobright
 
 log = logging.getLogger("radar")
 
@@ -46,6 +46,14 @@ def collect(cfg: dict, bootstrap: bool) -> List[Posting]:
         jobright.stamp(found, history)
         postings.extend(found)
 
+    for repo in sources.get("github_lists", []):
+        try:
+            found = ghlist.fetch(repo)
+        except Exception as exc:  # noqa: BLE001
+            log.error("source %s failed: %s", repo, exc)
+            continue
+        postings.extend(found)
+
     for feed in sources.get("internlist_feeds", []):
         try:
             found = internlist.fetch(feed)
@@ -59,10 +67,36 @@ def collect(cfg: dict, bootstrap: bool) -> List[Posting]:
                 p.posted_at, p.posted_precision = now, "first_seen"
         postings.extend(found)
 
-    # Same role can appear in more than one jobright repo.
-    unique = {p.job_id: p for p in postings}
-    log.info("collected %d listings (%d unique)", len(postings), len(unique))
-    return list(unique.values())
+    # Six overlapping lists advertise the same jobs, each with its own ids and
+    # sometimes its own redirect URLs, so collapse on the posting itself.
+    by_id = list({p.job_id: p for p in postings}.values())
+    unique = dedupe.collapse(by_id)
+    log.info("collected %d listings -> %d distinct jobs", len(postings), len(unique))
+    return unique
+
+
+def apply_scraped_dates(postings, pages) -> None:
+    """Prefer the employer's own posting timestamp where the page published one.
+
+    Only upgrades: a page that gives a bare calendar date does not replace a
+    commit-derived estimate that is already accurate to about an hour.
+    """
+    upgraded = 0
+    for p in postings:
+        data = pages.get(p.job_id)
+        if not data or not data.posted_at:
+            continue
+        better = jobdesc_rank(data.posted_precision) < jobdesc_rank(p.posted_precision)
+        if better or p.posted_at is None:
+            p.posted_at = data.posted_at
+            p.posted_precision = data.posted_precision
+            upgraded += 1
+    if upgraded:
+        log.info("posting time taken from the employer's page for %d listings", upgraded)
+
+
+def jobdesc_rank(precision: str) -> int:
+    return dedupe.PRECISION_RANK.get(precision, 9)
 
 
 def within_window(postings: List[Posting], hours: int) -> List[Posting]:
@@ -127,7 +161,19 @@ def main(argv=None) -> int:
         return 0
 
     enrich.resolve_portal(postings)
-    enrich.enrich(postings, cfg)
+
+    # One fetch of each application page serves both the real posting timestamp
+    # and the description the keywords are drawn from.
+    pages = {}
+    if cfg.get("fetch_descriptions", True):
+        pages = jobdesc.fetch_all(
+            postings,
+            max_chars=cfg.get("description_max_chars", 6000),
+            workers=cfg.get("description_workers", 6),
+        )
+        apply_scraped_dates(postings, pages)
+
+    enrich.enrich(postings, cfg, pages)
     apollo.find_recruiters(postings)
 
     if args.dry_run:

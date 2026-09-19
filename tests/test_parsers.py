@@ -15,7 +15,8 @@ from radar.classify import rule_verdict  # noqa: E402
 from radar.models import Posting  # noqa: E402
 from radar.sources import internlist  # noqa: E402
 from radar.sources.jobright import parse_readme  # noqa: E402
-from radar import jobdesc  # noqa: E402
+from radar import dedupe, jobdesc  # noqa: E402
+from radar.sources import ghlist  # noqa: E402
 
 CFG = yaml.safe_load((Path(__file__).resolve().parent.parent / "config.yaml").read_text())
 
@@ -189,6 +190,131 @@ class TestJobDescription(unittest.TestCase):
     def test_malformed_payload_returns_empty_not_raises(self):
         self.assertEqual(jobdesc._from_embedded_json(r'{"description":"\uZZZZ'), "")
         self.assertEqual(jobdesc.html_to_text("<div><p>unclosed"), "unclosed")
+
+
+class TestGithubLists(unittest.TestCase):
+    MD = (
+        "| Company | Role | Location | Application/Link | Date Posted |\n"
+        "| ------- | ---- | -------- | ---------------- | ----------- |\n"
+        '| Vertiv | Product Management Intern \U0001F6C2 | Westerville, OH | '
+        '<a href="https://egup.fa.us2.oraclecloud.com/job/20278933?utm_source=github-vansh">'
+        '<img src="x.png"></a> | Aug 21 |\n'
+        "| \u21b3 | Design Intern | Delaware, OH | "
+        '<a href="https://example.com/job/2">a</a> | 0d |\n'
+        "| Acme | Closed Role \U0001F512 | NY | <a href=\"https://example.com/3\">a</a> | 1d |\n"
+        "| Acme | Grad Only Role \U0001F393 | NY | <a href=\"https://example.com/4\">a</a> | 1d |\n"
+    )
+    CFG = ghlist.REPOS["vanshb03/Summer2027-Internships"]
+
+    def setUp(self):
+        self.rows = ghlist.parse(self.MD, self.CFG, "test")
+
+    def test_closed_and_advanced_degree_rows_are_dropped(self):
+        titles = [r.title for r in self.rows]
+        self.assertNotIn("Closed Role", titles)
+        self.assertNotIn("Grad Only Role", titles)
+        self.assertEqual(len(self.rows), 2)
+
+    def test_continuation_inherits_company(self):
+        self.assertEqual([r.company for r in self.rows], ["Vertiv", "Vertiv"])
+
+    def test_convention_emoji_stripped_from_title(self):
+        self.assertEqual(self.rows[0].title, "Product Management Intern")
+
+    def test_apply_url_is_the_real_ats_with_tracking_removed(self):
+        self.assertEqual(self.rows[0].portal_url,
+                         "https://egup.fa.us2.oraclecloud.com/job/20278933")
+
+    def test_relative_and_month_day_ages(self):
+        now = datetime(2026, 9, 19, 12, tzinfo=timezone.utc)
+        self.assertEqual(ghlist.parse_age("3d", now).day, 16)
+        self.assertEqual(ghlist.parse_age("Aug 21", now).month, 8)
+        self.assertIsNone(ghlist.parse_age("", now))
+
+    def test_month_day_in_the_future_rolls_back_a_year(self):
+        """A bare 'Dec 20' seen in September means last December, not next."""
+        now = datetime(2026, 9, 19, tzinfo=timezone.utc)
+        self.assertEqual(ghlist.parse_age("Dec 20", now).year, 2025)
+
+    def test_html_table_format(self):
+        html = ("<tr><td><a href='https://simplify.jobs/c/Waymo'>Waymo</a></td>"
+                "<td>Product Manager Intern</td><td>Mountain View, CA</td>"
+                "<td><a href='https://careers.withwaymo.com/jobs?gh_jid=821&ref=Simplify'>Apply</a></td>"
+                "<td>0d</td></tr>")
+        rows = ghlist.parse(html, ghlist.REPOS["SimplifyJobs/Summer2027-Internships"], "t")
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0].company, "Waymo")
+        self.assertEqual(rows[0].portal_url, "https://careers.withwaymo.com/jobs?gh_jid=821")
+
+
+class TestDedupe(unittest.TestCase):
+    def _p(self, company, title, source, url="", loc="New York, NY", **kw):
+        return Posting(job_id=f"{source}:{title}", title=title, company=company,
+                       source=source, portal_url=url, location=loc, **kw)
+
+    def test_same_ats_url_from_two_lists_collapses(self):
+        url = "https://job-boards.greenhouse.io/acme/jobs/123"
+        rows = dedupe.collapse([
+            self._p("Acme", "Product Manager Intern", "listA", url + "?utm_source=a"),
+            self._p("Acme", "Product Manager Intern", "listB", url + "?ref=b"),
+        ])
+        self.assertEqual(len(rows), 1)
+        self.assertIn("listA", rows[0].source)
+        self.assertIn("listB", rows[0].source)
+
+    def test_redirector_urls_still_collapse_on_content(self):
+        """dreamworkhq links to itself, so URL matching cannot catch these."""
+        rows = dedupe.collapse([
+            self._p("Acme", "Product Manager Intern - Summer 2027", "listA",
+                    "https://www.dreamworkhq.com/job/abc"),
+            self._p("Acme", "Product Manager Intern", "listB",
+                    "https://jobright.ai/jobs/info/xyz"),
+        ])
+        self.assertEqual(len(rows), 1)
+
+    def test_different_jobs_at_one_company_are_kept_apart(self):
+        rows = dedupe.collapse([
+            self._p("Acme", "Product Manager Intern", "a"),
+            self._p("Acme", "Product Design Intern", "a"),
+        ])
+        self.assertEqual(len(rows), 2)
+
+    def test_merge_keeps_the_more_precise_timestamp_and_real_portal(self):
+        vague = self._p("Acme", "PM Intern", "listA", "https://jobright.ai/x",
+                        posted_at=datetime(2026, 9, 18, tzinfo=timezone.utc),
+                        posted_precision="day")
+        precise = self._p("Acme", "PM Intern", "listB",
+                          "https://job-boards.greenhouse.io/acme/jobs/9",
+                          posted_at=datetime(2026, 9, 18, 14, 30, tzinfo=timezone.utc),
+                          posted_precision="scraped")
+        rows = dedupe.collapse([vague, precise])
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0].posted_precision, "scraped")
+        self.assertEqual(rows[0].posted_at.hour, 14)
+        self.assertIn("greenhouse", rows[0].portal_url)
+
+
+class TestPostedAtScraping(unittest.TestCase):
+    def test_schema_org_date_with_time_is_marked_scraped(self):
+        html = '<script type="application/ld+json">{"@type":"JobPosting",' \
+               '"datePosted":"2026-09-18T14:30:00Z"}</script>'
+        when, precision = jobdesc.extract_posted_at(html)
+        self.assertEqual(precision, "scraped")
+        self.assertEqual(when.hour, 14)
+
+    def test_bare_calendar_date_is_marked_day_not_scraped(self):
+        """Most boards publish only a date; that must not outrank a better estimate."""
+        html = '{"datePosted":"2026-09-18"}'
+        when, precision = jobdesc.extract_posted_at(html)
+        self.assertEqual(precision, "day")
+        self.assertEqual(when.day, 18)
+
+    def test_implausible_dates_are_ignored(self):
+        self.assertEqual(jobdesc.extract_posted_at('{"datePosted":"1998-01-01"}')[0], None)
+
+    def test_no_date_returns_none(self):
+        self.assertEqual(jobdesc.extract_posted_at("<html>nothing</html>"),
+                         (None, "unknown"))
 
 
 if __name__ == "__main__":

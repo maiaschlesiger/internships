@@ -22,13 +22,25 @@ import logging
 import re
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from html.parser import HTMLParser
-from typing import Dict, Optional, Sequence
+from dataclasses import dataclass
+from datetime import datetime, timezone
+from typing import Dict, Optional, Sequence, Tuple
 
 import requests
 
 from .models import Posting
 
 log = logging.getLogger(__name__)
+
+# Most job boards publish a schema.org JobPosting block. datePosted is the
+# employer's own timestamp, which beats any date we can infer from a list.
+# Be aware it is frequently a bare calendar date with no time of day -- see
+# extract_posted_at, which reports which of the two it got.
+DATE_KEYS = ("datePosted", "postedDate", "posted_at", "publishedAt",
+             "first_published", "createdAt", "postedOn", "publishTime")
+DATE_VALUE_RE = re.compile(
+    r'"(?:' + "|".join(DATE_KEYS) + r')"\s*:\s*"([^"]{4,40})"')
+DATE_ONLY_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
 SKIP_TAGS = {"script", "style", "noscript", "svg", "head", "nav", "footer", "header"}
 WHITESPACE_RE = re.compile(r"[ \t\r\f\v]+")
@@ -109,11 +121,55 @@ def _from_embedded_json(html: str) -> str:
     return ""
 
 
+def extract_posted_at(html: str) -> Tuple[Optional[datetime], str]:
+    """Find the employer's own posting timestamp.
+
+    Returns ``(when, precision)`` where precision is "scraped" if the page gave
+    a real time of day and "day" if it only gave a calendar date. Most postings
+    publish only a date -- the hour a job went live is simply not something most
+    applicant tracking systems disclose -- so "day" is the common answer and the
+    caller should keep a more precise estimate if it already has one.
+    """
+    for match in DATE_VALUE_RE.finditer(html):
+        raw = match.group(1).strip()
+        date_only = bool(DATE_ONLY_RE.match(raw))
+        try:
+            when = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+        except ValueError:
+            if raw.isdigit():
+                value = int(raw)
+                if value > 1_000_000_000_000:
+                    value //= 1000
+                try:
+                    when = datetime.fromtimestamp(value, tz=timezone.utc)
+                except (OverflowError, OSError, ValueError):
+                    continue
+                date_only = False
+            else:
+                continue
+        if when.tzinfo is None:
+            when = when.replace(tzinfo=timezone.utc)
+        # Guard against a parse that lands absurdly far from now.
+        now = datetime.now(timezone.utc)
+        if not (now.replace(year=now.year - 3) < when < now.replace(year=now.year + 1)):
+            continue
+        return when, ("day" if date_only else "scraped")
+    return None, "unknown"
+
+
+@dataclass
+class PageData:
+    """What one fetch of an application page yielded."""
+    text: str = ""
+    posted_at: Optional[datetime] = None
+    posted_precision: str = "unknown"
+
+
 def fetch_one(url: str, session: requests.Session, timeout: int = 20,
-              max_chars: int = 6000) -> str:
-    """Return the description text for one application URL, or "" on failure."""
+              max_chars: int = 6000) -> PageData:
+    """Fetch one application page: description text plus the posted timestamp."""
     if not url:
-        return ""
+        return PageData()
 
     # Workday renders client-side but serves JSON from the same URL.
     if "myworkdayjobs.com" in url or ".wd" in url:
@@ -125,19 +181,21 @@ def fetch_one(url: str, session: requests.Session, timeout: int = 20,
                 info = payload.get("jobPostingInfo") or {}
                 body = info.get("jobDescription") or ""
                 if body:
-                    return html_to_text(body)[:max_chars]
+                    when, precision = extract_posted_at(resp.text)
+                    return PageData(html_to_text(body)[:max_chars], when, precision)
         except (requests.RequestException, json.JSONDecodeError, AttributeError):
             pass  # fall through to the HTML path
 
     try:
         resp = session.get(url, timeout=timeout)
         if not resp.ok:
-            return ""
+            return PageData()
         html = resp.text
     except requests.RequestException as exc:
-        log.debug("description fetch failed for %s: %s", url, exc)
-        return ""
+        log.debug("page fetch failed for %s: %s", url, exc)
+        return PageData()
 
+    when, precision = extract_posted_at(html)
     text = html_to_text(html)
     # A near-empty body means the page is JS-rendered; try its JSON payload.
     if len(text) < 400:
@@ -146,13 +204,13 @@ def fetch_one(url: str, session: requests.Session, timeout: int = 20,
             text = embedded
 
     if len(text) < 200:
-        return ""
-    return text[:max_chars]
+        text = ""
+    return PageData(text[:max_chars], when, precision)
 
 
 def fetch_all(postings: Sequence[Posting], max_chars: int = 6000,
-              workers: int = 6, timeout: int = 20) -> Dict[str, str]:
-    """Fetch descriptions concurrently. Returns job_id -> text (missing on failure)."""
+              workers: int = 6, timeout: int = 20) -> Dict[str, PageData]:
+    """Fetch application pages concurrently. Returns job_id -> PageData."""
     if not postings:
         return {}
 
@@ -162,7 +220,7 @@ def fetch_all(postings: Sequence[Posting], max_chars: int = 6000,
         "Accept-Language": "en-US,en;q=0.9",
     })
 
-    out: Dict[str, str] = {}
+    out: Dict[str, PageData] = {}
     with ThreadPoolExecutor(max_workers=workers) as pool:
         futures = {
             pool.submit(fetch_one, p.portal_url or p.listing_url, session,
@@ -172,12 +230,17 @@ def fetch_all(postings: Sequence[Posting], max_chars: int = 6000,
         for fut in as_completed(futures):
             job_id = futures[fut]
             try:
-                text = fut.result()
+                data = fut.result()
             except Exception as exc:  # noqa: BLE001 - one bad page must not stop the rest
-                log.debug("description worker failed for %s: %s", job_id, exc)
+                log.debug("page worker failed for %s: %s", job_id, exc)
                 continue
-            if text:
-                out[job_id] = text
+            if data.text or data.posted_at:
+                out[job_id] = data
 
-    log.info("fetched descriptions for %d/%d listings", len(out), len(postings))
+    with_text = sum(1 for d in out.values() if d.text)
+    with_date = sum(1 for d in out.values() if d.posted_at)
+    exact = sum(1 for d in out.values() if d.posted_precision == "scraped")
+    log.info("fetched %d/%d pages: %d with description, %d with a posted date "
+             "(%d of those with a time of day)",
+             len(out), len(postings), with_text, with_date, exact)
     return out

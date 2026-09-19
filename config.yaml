@@ -58,6 +58,31 @@ categories:
 
 # Hard rejects. Checked before anything else -- these never reach the model.
 reject_categories:
+  # Software engineering, explicitly not wanted. Kept separate from the list
+  # below so it is obvious what to delete if that ever changes. Note this is
+  # about the ROLE: a technical product or product analyst role still counts.
+  - "software engineer"
+  - "software engineering"
+  - "software developer"
+  - "swe intern"
+  - "full stack"
+  - "full-stack"
+  - "backend engineer"
+  - "back end engineer"
+  - "frontend engineer"
+  - "front end engineer"
+  - "web developer"
+  - "mobile developer"
+  - "android developer"
+  - "ios developer"
+  - "devops"
+  - "site reliability"
+  - "embedded engineer"
+  - "firmware"
+  - "compiler"
+  - "machine learning engineer"
+  - "research scientist"
+
   - "architecture"
   - "architectural"
   - "civil engineer"
@@ -94,6 +119,13 @@ sources:
   # intern-list.com short links. These map to jobright minisite paths in
   # radar/sources/internlist.py -- "cst" is consulting, which the four GitHub
   # repos do not cover at all.
+  # Community lists. Different table formats, handled in sources/ghlist.py.
+  # Listings closed (🔒) or requiring an advanced degree (🎓) are dropped there.
+  github_lists:
+    - "vanshb03/Summer2027-Internships"
+    - "SimplifyJobs/Summer2027-Internships"
+    - "dreamworkhq/Tech-Internships-2027"
+
   internlist_feeds:
     - "pm"
     - "cd"
