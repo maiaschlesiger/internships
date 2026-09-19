@@ -120,11 +120,16 @@ def backfill(client, database_id: str, cfg: dict, limit: int = 0) -> int:
         skills = data.requirements if row["needs_skills"] else ""
         recruiter = data.contact_email if row["needs_recruiter"] else ""
         notes = data.notes if row.get("needs_notes") else ""
-        if not skills and not recruiter and not notes:
+        # Existing rows do not store the original listing URL -- only the
+        # resolved Application Portal -- so that is what their title links to.
+        # Rows written from here on link to the source listing instead.
+        title = row["title"] if row.get("needs_title_link") else ""
+        title_url = row["url"] if row.get("needs_title_link") else ""
+        if not skills and not recruiter and not notes and not title_url:
             continue
         try:
-            client.update_row(row["page_id"], skills=skills,
-                              recruiter=recruiter, notes=notes)
+            client.update_row(row["page_id"], skills=skills, recruiter=recruiter,
+                              notes=notes, title=title, title_url=title_url)
             updated += 1
         except Exception as exc:  # noqa: BLE001 - one bad row must not lose the rest
             log.error("could not update %r: %s", row["title"][:40], exc)

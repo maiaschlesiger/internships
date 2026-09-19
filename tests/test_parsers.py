@@ -378,6 +378,42 @@ class TestRequirementsExtraction(unittest.TestCase):
         self.assertTrue(out.endswith("..."))
 
 
+class TestTitleLink(unittest.TestCase):
+    """The title links to where the listing was found, not where it resolved to."""
+
+    def _props(self, p):
+        import radar.notion_sink as ns
+        captured = {}
+        client = ns.Notion.__new__(ns.Notion)
+        client._call = lambda method, path, **kw: captured.update(kw.get("json", {})) or {}
+        ns.Notion.add(client, "db", p)
+        return captured["properties"]
+
+    def test_title_links_to_the_source_listing_not_the_resolved_portal(self):
+        p = Posting(job_id="1", title="PM Intern", company="Acme", source="s",
+                    listing_url="https://jobright.ai/jobs/info/abc",
+                    portal_url="https://job-boards.greenhouse.io/acme/jobs/1")
+        link = self._props(p)["Title"]["title"][0]["text"]["link"]["url"]
+        self.assertEqual(link, "https://jobright.ai/jobs/info/abc")
+
+    def test_falls_back_to_the_portal_when_no_listing_url(self):
+        p = Posting(job_id="1", title="PM Intern", company="Acme", source="s",
+                    portal_url="https://job-boards.greenhouse.io/acme/jobs/1")
+        link = self._props(p)["Title"]["title"][0]["text"]["link"]["url"]
+        self.assertIn("greenhouse", link)
+
+    def test_no_url_leaves_a_plain_title(self):
+        p = Posting(job_id="1", title="PM Intern", company="Acme", source="s")
+        self.assertNotIn("link", self._props(p)["Title"]["title"][0]["text"])
+
+    def test_application_portal_still_holds_the_resolved_url(self):
+        p = Posting(job_id="1", title="PM Intern", company="Acme", source="s",
+                    listing_url="https://jobright.ai/jobs/info/abc",
+                    portal_url="https://job-boards.greenhouse.io/acme/jobs/1")
+        self.assertEqual(self._props(p)["Application Portal"]["url"],
+                         "https://job-boards.greenhouse.io/acme/jobs/1")
+
+
 class TestNotesExtraction(unittest.TestCase):
     POSTING = ("This is a 12-week program based in New York.\n"
                "The hourly pay range is $45.00 - $55.00 per hour.\n"

@@ -116,7 +116,8 @@ added yourself are left alone.
 
 | Column | Notes |
 |---|---|
-| Title / Company / Location | from the source table |
+| Title | the role name, hyperlinked to the listing as the source published it |
+| Company / Location | from the source table |
 | Application Portal | the listing URL followed through to the employer's own ATS page where the redirect can be resolved |
 | Resume Keywords | multi-select, **inferred from the role title** — see caveat below |
 | Skill Requirements | same caveat |

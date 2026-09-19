@@ -231,13 +231,17 @@ class Notion:
                 skills = _plain_text(props.get(P_SKILLS, {}).get("rich_text", []))
                 recruiter = props.get(P_RECRUITER, {}).get("email") or ""
                 notes = _plain_text(props.get(P_NOTES, {}).get("rich_text", []))
+                title_chunks = props.get(P_TITLE, {}).get("title", [])
+                title_linked = any(c.get("href") or (c.get("text") or {}).get("link")
+                                   for c in title_chunks)
                 url = props.get(P_PORTAL, {}).get("url") or ""
                 # Placeholders past and present. Rows holding one are treated as
                 # missing so a later backfill can still fill them.
                 needs_skills = (not skills) or skills.startswith((
                     "See posting", "Could not read", "Inferred from",
                     "See listing", "Description fetched"))
-                if not url or not (needs_skills or not recruiter or not notes):
+                if not url or not (needs_skills or not recruiter or not notes
+                                   or not title_linked):
                     continue
                 out.append({
                     "page_id": row["id"],
@@ -247,6 +251,7 @@ class Notion:
                     "needs_skills": needs_skills,
                     "needs_recruiter": not recruiter,
                     "needs_notes": not notes,
+                    "needs_title_link": not title_linked,
                 })
                 if limit and len(out) >= limit:
                     log.info("%d rows queued for backfill (capped)", len(out))
@@ -258,7 +263,7 @@ class Notion:
         return out
 
     def update_row(self, page_id: str, skills: str = "", recruiter: str = "",
-                   notes: str = "") -> None:
+                   notes: str = "", title: str = "", title_url: str = "") -> None:
         """Patch only the named fields.
 
         Everything else on the row is left alone -- crucially the Applied tag
@@ -274,6 +279,9 @@ class Notion:
         if notes:
             props[P_NOTES] = {"rich_text": [{"type": "text",
                                              "text": {"content": notes[:2000]}}]}
+        if title and title_url:
+            props[P_TITLE] = {"title": [{"type": "text", "text": {
+                "content": title[:2000], "link": {"url": title_url}}}]}
         if not props:
             return
         self._call("PATCH", f"/pages/{page_id}", json={"properties": props})
@@ -282,8 +290,16 @@ class Notion:
         def rt(value: str) -> dict:
             return {"rich_text": [{"type": "text", "text": {"content": value[:2000]}}]} if value else {"rich_text": []}
 
+        # The title links to the listing as the source published it. The
+        # Application Portal column holds the resolved employer page, so the row
+        # carries both: where it was found, and where to apply.
+        title_text: Dict[str, object] = {"content": p.title[:2000]}
+        origin = p.listing_url or p.portal_url
+        if origin:
+            title_text["link"] = {"url": origin}
+
         props: Dict[str, dict] = {
-            P_TITLE: {"title": [{"type": "text", "text": {"content": p.title[:2000]}}]},
+            P_TITLE: {"title": [{"type": "text", "text": title_text}]},
             P_COMPANY: rt(p.company),
             P_LOCATION: rt(p.location),
             P_SKILLS: rt(p.skills_cell()),
