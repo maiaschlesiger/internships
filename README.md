@@ -113,8 +113,13 @@ When a page can't be read (dead link, login wall, no embedded payload), the row
 falls back to inferring from the role title and the Skill Requirements cell says
 so. Set `fetch_descriptions: false` in `config.yaml` to skip the fetch entirely.
 
-Without `ANTHROPIC_API_KEY` the description is fetched but never summarised, and
-every row gets the same generic keyword list.
+Skill Requirements never contains a guess from the job title. With
+`ANTHROPIC_API_KEY` set, the model summarises the posting. Without it, the
+requirements/qualifications section is lifted out of the page verbatim —
+the employer's own words, with benefits and EEO boilerplate stripped. Only a
+posting whose page could not be read at all gets a placeholder, and it says so.
+
+Resume Keywords still fall back to a per-category list without a key.
 
 ### Keeping the hourly schedule alive
 

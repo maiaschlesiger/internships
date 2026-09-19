@@ -15,7 +15,7 @@ from radar.classify import rule_verdict  # noqa: E402
 from radar.models import Posting  # noqa: E402
 from radar.sources import internlist  # noqa: E402
 from radar.sources.jobright import parse_readme  # noqa: E402
-from radar import dedupe, jobdesc  # noqa: E402
+from radar import dedupe, enrich, jobdesc  # noqa: E402
 from radar.sources import ghlist  # noqa: E402
 
 CFG = yaml.safe_load((Path(__file__).resolve().parent.parent / "config.yaml").read_text())
@@ -292,6 +292,64 @@ class TestDedupe(unittest.TestCase):
         self.assertEqual(rows[0].posted_precision, "scraped")
         self.assertEqual(rows[0].posted_at.hour, 14)
         self.assertIn("greenhouse", rows[0].portal_url)
+
+
+class TestRequirementsExtraction(unittest.TestCase):
+    """The Skill Requirements column must carry the employer's own words."""
+
+    POSTING = ("About Acme\nWe build things.\n"
+               "Responsibilities\nOwn the roadmap\n"
+               "Basic Qualifications\n"
+               "Currently pursuing a Bachelor's degree in Computer Science\n"
+               "Experience with SQL and data analysis\n"
+               "Preferred Qualifications\nFamiliarity with Figma\n"
+               "Benefits\nFree lunch and unlimited PTO\n"
+               "Equal Opportunity\nAcme is an equal opportunity employer.\n")
+
+    def test_pulls_the_qualifications_section(self):
+        out = jobdesc.extract_requirements(self.POSTING)
+        self.assertIn("Bachelor", out)
+        self.assertIn("SQL", out)
+
+    def test_continues_through_a_second_requirements_heading(self):
+        self.assertIn("Figma", jobdesc.extract_requirements(self.POSTING))
+
+    def test_stops_before_benefits_and_eeo_boilerplate(self):
+        out = jobdesc.extract_requirements(self.POSTING)
+        self.assertNotIn("Free lunch", out)
+        self.assertNotIn("equal opportunity", out.lower())
+
+    def test_strips_bullet_markers(self):
+        out = jobdesc.extract_requirements(
+            "Requirements\n- Pursuing a BS\n\u2022 Proficiency in Excel\n1. Strong communication\n")
+        self.assertTrue(out.startswith("Pursuing a BS"))
+        self.assertNotIn("\u2022", out)
+        self.assertIn("Excel", out)
+
+    def test_no_section_returns_empty_so_the_caller_can_say_so(self):
+        self.assertEqual(jobdesc.extract_requirements("Prose with no headings at all."), "")
+        self.assertEqual(jobdesc.extract_requirements(""), "")
+
+    def test_truncates_long_sections(self):
+        long = "Qualifications\n" + "\n".join(
+            f"Requirement {i} with supporting detail" for i in range(60))
+        out = jobdesc.extract_requirements(long, max_chars=300)
+        self.assertLessEqual(len(out), 310)
+        self.assertTrue(out.endswith("..."))
+
+
+class TestSkillsFallback(unittest.TestCase):
+    def test_scraped_requirements_are_used_verbatim(self):
+        p = Posting(job_id="1", title="PM Intern", company="Acme", source="s",
+                    category="Product Management")
+        enrich.apply_fallback(p, requirements="Pursuing a BS; SQL; Figma")
+        self.assertEqual(p.skills, ["Pursuing a BS; SQL; Figma"])
+
+    def test_generic_note_only_when_the_page_could_not_be_read(self):
+        p = Posting(job_id="1", title="PM Intern", company="Acme", source="s",
+                    category="Product Management")
+        enrich.apply_fallback(p, requirements="")
+        self.assertIn("Could not read", p.skills[0])
 
 
 class TestStoredRowDedup(unittest.TestCase):

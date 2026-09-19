@@ -36,8 +36,7 @@ FALLBACK_KEYWORDS = {
     "Technical / Adjacent": ["SQL", "Python", "data analysis", "dashboards", "experimentation",
                              "technical documentation", "API fundamentals"],
 }
-GENERIC_SKILLS = "Inferred from job title only - open the listing for the real requirements."
-DESC_UNUSED_SKILLS = "Description fetched but not summarised (no ANTHROPIC_API_KEY set)."
+GENERIC_SKILLS = "Could not read the application page - open the listing."
 
 # Hosts that mean we landed on a real employer-side application page rather
 # than back on an aggregator.
@@ -139,14 +138,16 @@ def enrich_with_model(postings: Sequence[Posting], api_key: str,
     return {r["id"]: r for r in rows if isinstance(r, dict) and "id" in r}
 
 
-def apply_fallback(p: Posting, sourced: bool = False) -> None:
-    """Generic keywords for when the model pass did not run or did not answer.
+def apply_fallback(p: Posting, requirements: str = "") -> None:
+    """Fill the row when the model pass did not run or did not answer.
 
-    ``sourced`` only changes the note: it records whether a real description was
-    available, so a row's provenance is visible in the database.
+    Keywords fall back to a per-category list. Skill requirements do NOT fall
+    back to a sentence about the job title: where the application page had a
+    requirements section, that text is the employer's own and goes in verbatim.
+    Only a posting whose page could not be read gets the generic note.
     """
     p.resume_keywords = list(FALLBACK_KEYWORDS.get(p.category, FALLBACK_KEYWORDS["Product Management"]))
-    p.skills = [DESC_UNUSED_SKILLS if sourced else GENERIC_SKILLS]
+    p.skills = [requirements] if requirements else [GENERIC_SKILLS]
 
 
 def enrich(postings: Sequence[Posting], cfg: Optional[dict] = None,
@@ -158,7 +159,8 @@ def enrich(postings: Sequence[Posting], cfg: Optional[dict] = None,
     """
     cfg = cfg or {}
     api_key = os.environ.get("ANTHROPIC_API_KEY", "")
-    descriptions = {jid: data.text for jid, data in (pages or {}).items() if data.text}
+    pages = pages or {}
+    descriptions = {jid: data.text for jid, data in pages.items() if data.text}
 
     results = enrich_with_model(postings, api_key, descriptions) if api_key else {}
 
@@ -169,4 +171,5 @@ def enrich(postings: Sequence[Posting], cfg: Optional[dict] = None,
             skills = row.get("skills")
             p.skills = [str(skills)] if skills else [GENERIC_SKILLS]
         else:
-            apply_fallback(p, sourced=bool(descriptions.get(p.job_id)))
+            data = pages.get(p.job_id)
+            apply_fallback(p, requirements=data.requirements if data else "")

@@ -157,12 +157,82 @@ def extract_posted_at(html: str) -> Tuple[Optional[datetime], str]:
     return None, "unknown"
 
 
+# Headings that introduce what a candidate needs. Ordered by how specific they
+# usually are, so the most useful section wins when a posting has several.
+REQUIREMENT_HEADINGS = (
+    "basic qualifications", "minimum qualifications", "required qualifications",
+    "what you'll need", "what you will need", "what we're looking for",
+    "what we are looking for", "requirements", "qualifications",
+    "required skills", "desired skills", "skills", "who you are",
+    "about you", "you have", "preferred qualifications", "nice to have",
+)
+# Headings that end the section -- everything past these is boilerplate.
+STOP_HEADINGS = (
+    "benefits", "what we offer", "perks", "compensation", "salary", "pay range",
+    "about us", "about the company", "equal opportunity", "eeo", "diversity",
+    "accommodation", "how to apply", "application process", "privacy",
+    "disclaimer", "next steps", "our values",
+)
+BULLET_RE = re.compile(r"^\s*[-*\u2022\u25cf\u25aa\u2023\u2043\d]+[.)]?\s+")
+
+
+def _is_heading(line: str, names: tuple) -> bool:
+    probe = line.strip().strip(":").lower()
+    if len(probe) > 60:
+        return False
+    return any(probe == n or probe.startswith(n) for n in names)
+
+
+def extract_requirements(text: str, max_chars: int = 900) -> str:
+    """Pull the requirements/qualifications section out of a job description.
+
+    This is what fills the Skill Requirements column when no model is available
+    to summarise the posting. It returns the employer's own words rather than an
+    inference from the job title, which is the whole point.
+
+    Returns "" when the posting has no recognisable requirements section.
+    """
+    if not text:
+        return ""
+    lines = [ln.strip() for ln in text.splitlines()]
+
+    start = None
+    for i, line in enumerate(lines):
+        if line and _is_heading(line, REQUIREMENT_HEADINGS):
+            start = i + 1
+            break
+    if start is None:
+        return ""
+
+    collected = []
+    for line in lines[start:]:
+        if not line:
+            continue
+        if _is_heading(line, STOP_HEADINGS):
+            break
+        # A new requirements-style heading continues the same idea; keep going.
+        if _is_heading(line, REQUIREMENT_HEADINGS):
+            continue
+        item = BULLET_RE.sub("", line).strip(" ;")
+        if len(item) < 8:
+            continue
+        collected.append(item)
+        if sum(len(c) + 2 for c in collected) > max_chars:
+            break
+
+    if not collected:
+        return ""
+    out = "; ".join(collected)
+    return out[:max_chars].rstrip(" ;") + ("..." if len(out) > max_chars else "")
+
+
 @dataclass
 class PageData:
     """What one fetch of an application page yielded."""
     text: str = ""
     posted_at: Optional[datetime] = None
     posted_precision: str = "unknown"
+    requirements: str = ""
 
 
 def fetch_one(url: str, session: requests.Session, timeout: int = 20,
@@ -182,7 +252,8 @@ def fetch_one(url: str, session: requests.Session, timeout: int = 20,
                 body = info.get("jobDescription") or ""
                 if body:
                     when, precision = extract_posted_at(resp.text)
-                    return PageData(html_to_text(body)[:max_chars], when, precision)
+                    plain = html_to_text(body)[:max_chars]
+                    return PageData(plain, when, precision, extract_requirements(plain))
         except (requests.RequestException, json.JSONDecodeError, AttributeError):
             pass  # fall through to the HTML path
 
@@ -205,7 +276,8 @@ def fetch_one(url: str, session: requests.Session, timeout: int = 20,
 
     if len(text) < 200:
         text = ""
-    return PageData(text[:max_chars], when, precision)
+    text = text[:max_chars]
+    return PageData(text, when, precision, extract_requirements(text))
 
 
 def fetch_all(postings: Sequence[Posting], max_chars: int = 6000,
@@ -237,10 +309,11 @@ def fetch_all(postings: Sequence[Posting], max_chars: int = 6000,
             if data.text or data.posted_at:
                 out[job_id] = data
 
+    with_reqs = sum(1 for d in out.values() if d.requirements)
     with_text = sum(1 for d in out.values() if d.text)
     with_date = sum(1 for d in out.values() if d.posted_at)
     exact = sum(1 for d in out.values() if d.posted_precision == "scraped")
-    log.info("fetched %d/%d pages: %d with description, %d with a posted date "
-             "(%d of those with a time of day)",
-             len(out), len(postings), with_text, with_date, exact)
+    log.info("fetched %d/%d pages: %d with description, %d with a requirements "
+             "section, %d with a posted date (%d of those with a time of day)",
+             len(out), len(postings), with_text, with_reqs, with_date, exact)
     return out
