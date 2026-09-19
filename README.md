@@ -149,8 +149,7 @@ so. Set `fetch_descriptions: false` in `config.yaml` to skip the fetch entirely.
 Skill Requirements never contains a guess from the job title. With
 `ANTHROPIC_API_KEY` set, the model summarises the posting. Without it, the
 requirements/qualifications section is lifted out of the page verbatim —
-the employer's own words, with benefits and EEO boilerplate stripped. Only a
-posting whose page could not be read at all gets a placeholder, and it says so.
+the employer's own words, with benefits and EEO boilerplate stripped. A posting whose page could not be read shows "See posting".
 
 Resume Keywords still fall back to a per-category list without a key.
 

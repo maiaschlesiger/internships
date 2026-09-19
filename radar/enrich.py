@@ -38,7 +38,7 @@ FALLBACK_KEYWORDS = {
     "Technical / Adjacent": ["SQL", "Python", "data analysis", "dashboards", "experimentation",
                              "technical documentation", "API fundamentals"],
 }
-GENERIC_SKILLS = "Could not read the application page - open the listing."
+GENERIC_SKILLS = "See posting"
 
 # Hosts that mean we landed on a real employer-side application page rather
 # than back on an aggregator.

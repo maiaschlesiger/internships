@@ -381,7 +381,7 @@ class TestSkillsFallback(unittest.TestCase):
         p = Posting(job_id="1", title="PM Intern", company="Acme", source="s",
                     category="Product Management")
         enrich.apply_fallback(p, requirements="")
-        self.assertIn("Could not read", p.skills[0])
+        self.assertEqual(p.skills, ["See posting"])
 
 
 class TestStoredRowDedup(unittest.TestCase):

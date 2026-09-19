@@ -207,9 +207,11 @@ class Notion:
                 skills = _plain_text(props.get(P_SKILLS, {}).get("rich_text", []))
                 recruiter = props.get(P_RECRUITER, {}).get("email") or ""
                 url = props.get(P_PORTAL, {}).get("url") or ""
+                # Placeholders past and present. Rows holding one are treated as
+                # missing so a later backfill can still fill them.
                 needs_skills = (not skills) or skills.startswith((
-                    "Could not read", "Inferred from", "See listing",
-                    "Description fetched"))
+                    "See posting", "Could not read", "Inferred from",
+                    "See listing", "Description fetched"))
                 if not url or not (needs_skills or not recruiter):
                     continue
                 out.append({
