@@ -39,12 +39,17 @@ concurrency:
 
 jobs:
   scrape:
-    runs-on: ubuntu-latest
+    # Pinned, not ubuntu-latest. The label moves to Ubuntu 26 on 2026-10-19,
+    # and this job renders PDFs with whatever Chromium the runner image ships.
+    # An unattended hourly job is the worst place to discover an image change,
+    # so the bump happens when someone is watching. find_chrome() searches
+    # several locations, but a missing browser still means no resumes.
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.11"
           cache: pip
@@ -81,18 +86,18 @@ jobs:
   # environment it was written in.
   probe-internlist:
     if: github.event_name == 'workflow_dispatch'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.11"
       - run: pip install requests
       - name: Capture intern-list markup
         continue-on-error: true
         run: python tools/probe_internlist.py
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v5
         with:
           name: internlist-probe
           path: probe-output/
