@@ -80,25 +80,3 @@ jobs:
             ARGS="$ARGS --dry-run"
           fi
           python -m radar.main $ARGS
-
-  # Manual only. Captures intern-list.com's real markup so the parser for that
-  # source can be finished from evidence -- the host is unreachable from the
-  # environment it was written in.
-  probe-internlist:
-    if: github.event_name == 'workflow_dispatch'
-    runs-on: ubuntu-24.04
-    timeout-minutes: 10
-    steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-python@v6
-        with:
-          python-version: "3.11"
-      - run: pip install requests
-      - name: Capture intern-list markup
-        continue-on-error: true
-        run: python tools/probe_internlist.py
-      - uses: actions/upload-artifact@v5
-        with:
-          name: internlist-probe
-          path: probe-output/
-          if-no-files-found: warn
