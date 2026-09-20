@@ -18,10 +18,13 @@ import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import List
+from urllib.parse import urlparse
 
+import requests
 import yaml
 
 from . import apollo, classify, dedupe, enrich, jobdesc
+from .dedupe import _is_real_portal
 from .models import Posting
 from .resume import render as resume_render
 from .resume import tailor as resume_tailor
@@ -123,10 +126,28 @@ def tailor_resumes(client, database_id: str, cfg: dict, limit: int = 0) -> int:
         log.info("%d rows waiting; taking %d this run", len(rows), limit)
         rows = rows[:limit]
 
-    # The stored Skill Requirements are the posting's own words, so they make a
-    # good tailoring brief without re-fetching the page. Re-fetch only when the
-    # row has nothing useful stored.
-    needs_text = [r for r in rows if len(r.get("skills", "")) < 80 and r.get("url")]
+    # Tailoring is only as good as the text it reads, so it reads the employer's
+    # own posting. A row still pointing at an aggregator is resolved through to
+    # the original post first, and its stored Skill Requirements are ignored --
+    # whatever is saved there was taken from the aggregator's page, not the job.
+    session = requests.Session()
+    session.headers.update({"User-Agent": "Mozilla/5.0 (compatible; internship-radar/1.0)"})
+    needs_text = []
+    for r in rows:
+        url = r.get("url") or ""
+        if not url:
+            continue
+        if not _is_real_portal(url):
+            original = enrich.follow_to_original(url, session)
+            if _is_real_portal(original):
+                r["url"] = original
+                r["skills"] = ""  # stale: it described the aggregator page
+                log.info("%s at %s: tailoring from the original post at %s",
+                         r["title"], r["company"], urlparse(original).netloc)
+            needs_text.append(r)
+        elif len(r.get("skills", "")) < 80:
+            needs_text.append(r)
+
     fetched = {}
     if needs_text:
         stubs = [Posting(job_id=r["page_id"], title=r["title"], company=r["company"],

@@ -15,7 +15,8 @@ import os
 import re
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Dict, List, Optional, Sequence
-from urllib.parse import urlparse
+from html import unescape as html_unescape
+from urllib.parse import urljoin, urlparse
 
 import requests
 
@@ -45,6 +46,128 @@ GENERIC_SKILLS = "See posting"
 ATS_HINTS = ("greenhouse.io", "lever.co", "myworkdayjobs.com", "workday", "icims.com",
              "smartrecruiters.com", "ashbyhq.com", "jobvite.com", "taleo.net",
              "successfactors", "oraclecloud.com", "brassring.com", "eightfold.ai")
+
+
+# Keys an aggregator's embedded JSON payload may use for the employer's own
+# posting, best first. The "original" spellings are unambiguous; the "apply"
+# ones are only trusted when they point off the aggregator, because jobright's
+# own listing feed uses applyUrl for a link back to itself.
+ORIGINAL_URL_KEYS = ("originaljobposturl", "originaljoburl", "originalpostingurl",
+                     "originalposturl", "originalurl", "sourceurl", "sourcejoburl",
+                     "externalapplyurl", "externalurl", "companyapplyurl",
+                     "employerapplyurl", "joburl", "jobposturl", "postingurl",
+                     "applyurl", "applylink", "applyurllink", "redirecturl",
+                     "hiringurl")
+
+# Link text on the button a human would click to leave the aggregator.
+ORIGINAL_LINK_TEXT = ("original job post", "original posting", "original post",
+                      "apply on company", "company website", "company site",
+                      "employer site", "apply externally", "external apply",
+                      "view original", "apply on the company")
+
+# Hosts that are never the employer's posting, whatever the link text says.
+_NOT_EMPLOYER = ("facebook.com", "twitter.com", "x.com", "linkedin.com/share",
+                 "instagram.com", "youtube.com", "t.me", "wa.me", "mailto:",
+                 "apple.com/app-store", "play.google.com", "chrome.google.com",
+                 "w3.org", "schema.org", "googletagmanager.com", "cdn.")
+
+
+def _clean_json_url(raw: str) -> str:
+    """Undo the escaping a URL picks up inside an embedded JSON payload."""
+    return (raw.replace("\\u0026", "&").replace("\\u002F", "/")
+               .replace("\\/", "/").replace("\\&", "&").strip())
+
+
+def _absolute(url: str, page_url: str) -> str:
+    """Make a page-relative href absolute, so it can be judged like any other."""
+    if page_url and url and not url.lower().startswith(("http://", "https://", "mailto:")):
+        return urljoin(page_url, url)
+    return url
+
+
+def _usable_employer_url(url: str) -> bool:
+    low = (url or "").lower()
+    if not low.startswith(("http://", "https://")):
+        return False
+    if any(bad in low for bad in _NOT_EMPLOYER):
+        return False
+    return _is_real_portal(low)
+
+
+def original_post_link(html: str, page_url: str = "") -> str:
+    """Find the employer's own posting URL inside an aggregator's page.
+
+    jobright serves its listing detail pages from Next.js, so the link behind
+    the "Original Job Post" button is present in the delivered HTML even though
+    the button itself is drawn client-side. Three passes, most trustworthy
+    first: the embedded JSON payload, then an anchor whose visible text says it
+    leaves the site, then any link to a known applicant tracking system.
+
+    Returns "" when the page offers nothing better, so callers can keep the
+    aggregator URL rather than substituting something wrong.
+    """
+    if not html:
+        return ""
+
+    # 1. Embedded JSON. Keys are compared with punctuation stripped so that
+    #    applyUrl, apply_url and APPLY-URL all match the same entry.
+    found: Dict[str, str] = {}
+    for raw_key, raw_url in re.findall(r'"([A-Za-z0-9_\-]{3,40})"\s*:\s*"(https?:[^"]{10,600})"',
+                                       html):
+        key = re.sub(r"[^a-z]", "", raw_key.lower())
+        if key in ORIGINAL_URL_KEYS:
+            url = _clean_json_url(raw_url)
+            if _usable_employer_url(url):
+                found.setdefault(key, url)
+    for key in ORIGINAL_URL_KEYS:
+        if key in found:
+            return found[key]
+
+    # 2. An anchor that says it takes you to the employer.
+    for href, text in re.findall(r"<a\b[^>]*?href=[\"']([^\"']+)[\"'][^>]*>(.*?)</a>",
+                                 html, re.I | re.S):
+        label = re.sub(r"<[^>]+>", " ", text)
+        label = re.sub(r"\s+", " ", label).strip().lower()
+        if any(hint in label for hint in ORIGINAL_LINK_TEXT):
+            url = _absolute(_clean_json_url(html_unescape(href)), page_url)
+            if _usable_employer_url(url):
+                return url
+
+    # 3. Any link into an applicant tracking system. A jobright page carries
+    #    exactly one of these -- the posting it was scraped from.
+    for href in re.findall(r'href=[\"\']([^\"\']+)[\"\']', html, re.I):
+        url = _absolute(_clean_json_url(html_unescape(href)), page_url)
+        low = url.lower()
+        if any(h in low for h in ATS_HINTS) and _usable_employer_url(url):
+            return url
+
+    return ""
+
+
+def follow_to_original(url: str, session: requests.Session, timeout: int = 15) -> str:
+    """Resolve an aggregator link to the employer's posting, or return it unchanged.
+
+    Covers both shapes: aggregators that HTTP-redirect (the link resolves by
+    itself) and jobright, which does not -- it serves its own page and puts the
+    employer's URL behind a button, so the page body has to be read.
+    """
+    if not url:
+        return url
+    try:
+        resp = session.get(url, timeout=timeout, allow_redirects=True)
+    except requests.RequestException as exc:
+        log.debug("could not follow %s: %s", url, exc)
+        return url
+
+    final = resp.url or url
+    if _is_real_portal(final) and final != url:
+        return final  # the redirect chain landed on the employer already
+
+    original = original_post_link(resp.text, final)
+    if original:
+        log.debug("followed %s to its original post at %s", url, urlparse(original).netloc)
+        return original
+    return final
 
 
 def resolve_portal(postings: Sequence[Posting], timeout: int = 15,
@@ -79,19 +202,15 @@ def resolve_portal(postings: Sequence[Posting], timeout: int = 15,
     session.headers.update({"User-Agent": "Mozilla/5.0 (compatible; internship-radar/1.0)"})
 
     def resolve(p: Posting) -> None:
-        try:
-            resp = session.get(p.listing_url, timeout=timeout, allow_redirects=True)
-            final = resp.url
-        except requests.RequestException as exc:
-            log.debug("portal resolve failed for %s: %s", p.job_id, exc)
-            p.portal_url = p.listing_url
-            return
-        host = urlparse(final).netloc.lower()
-        if final != p.listing_url and "jobright" not in host:
-            p.portal_url = final
+        resolved = follow_to_original(p.listing_url, session, timeout)
+        if _is_real_portal(resolved):
+            p.portal_url = resolved
+            host = urlparse(resolved).netloc.lower()
             if not any(h in host for h in ATS_HINTS):
                 log.debug("%s resolved to non-ATS host %s", p.job_id, host)
         else:
+            # Nothing better than the aggregator link; keep it so the row still
+            # has somewhere to click.
             p.portal_url = p.listing_url
 
     with ThreadPoolExecutor(max_workers=workers) as pool:

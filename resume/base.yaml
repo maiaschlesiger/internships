@@ -108,10 +108,15 @@ skills_available:
   Design: ["Interaction design", "product design", "design systems", "Figma",
            "Adobe Photoshop", "Adobe Illustrator", "Adobe InDesign", "Miro",
            "wireframing", "prototyping", "usability testing", "information architecture",
-           "user flows", "design critique"]
+           "user flows", "design critique",
+           "design engineering",
+           # Physical fabrication, from the JSTI bridge work.
+           "3D printing", "physical prototyping", "rapid prototyping"]
   Technical: ["TypeScript", "JavaScript", "React", "HTML", "CSS", "Python",
               "SQL (Structured Query Language)", "Unity", "Git", "GitHub"]
   "AI & Research": ["Artificial intelligence (AI) prototyping", "machine learning pipelines",
                     "user experience (UX) research", "data visualization",
-                    "user interviews", "A/B testing", "competitive analysis",
-                    "product requirements", "roadmapping"]
+                    "user research", "user interviews", "A/B testing",
+                    "competitive analysis", "product requirements", "roadmapping",
+                    # AI tools she uses day to day.
+                    "ChatGPT", "Microsoft Copilot"]

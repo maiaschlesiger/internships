@@ -28,6 +28,7 @@ from typing import Dict, List, Optional, Sequence, Tuple
 
 import requests
 
+from .dedupe import _is_real_portal
 from .models import Posting
 
 log = logging.getLogger(__name__)
@@ -404,6 +405,23 @@ def fetch_one(url: str, session: requests.Session, timeout: int = 20,
     except requests.RequestException as exc:
         log.debug("page fetch failed for %s: %s", url, exc)
         return PageData()
+
+    # An aggregator page describes the aggregator: its own boilerplate, its own
+    # "posted 2 days ago". Step through to the employer's posting and read that
+    # instead, which is what the requirements and the posted time should come
+    # from. One extra request, and only for rows that need it.
+    if not _is_real_portal(resp.url or url):
+        from .enrich import original_post_link  # imported late: enrich imports this module
+
+        original = original_post_link(html, resp.url or url)
+        if original:
+            try:
+                deep = session.get(original, timeout=timeout)
+                if deep.ok and len(deep.text) > 500:
+                    log.debug("read %s from its original post at %s", url, original)
+                    html = deep.text
+            except requests.RequestException as exc:
+                log.debug("original post fetch failed for %s: %s", original, exc)
 
     when, precision = extract_posted_at(html)
     text = html_to_text(html)

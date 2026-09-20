@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import sys
 import unittest
+from unittest import mock
 from datetime import datetime, timezone
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+import requests  # noqa: E402
 import yaml  # noqa: E402
 
 from radar.classify import rule_verdict  # noqa: E402
@@ -665,5 +667,133 @@ class TestResumeTailoringGuardrails(unittest.TestCase):
                 os.environ["ANTHROPIC_API_KEY"] = saved
 
 
+JOBRIGHT_NEXT_DATA = """<!DOCTYPE html><html><head><title>PM Intern | Jobright.ai</title></head>
+<body><div id="__next">...</div>
+<script id="__NEXT_DATA__" type="application/json">{"props":{"pageProps":{"job":{
+"id":"6a5908d763a8f619507bfd68","title":"Product Management Intern (Summer 2027)",
+"company":"Databricks","applyUrl":"https://jobright.ai/jobs/info/6a5908d763a8f619507bfd68?utm_source=1099",
+"originalUrl":"https://www.databricks.com/company/careers/product/pm-intern-summer-2027-6883068002",
+"socialShare":"https://twitter.com/intent/tweet?url=x"}}}}</script></body></html>"""
+
+JOBRIGHT_BUTTON = """<html><body>
+<a href="/jobs/info/abc">Back</a>
+<a class="btn" href="https://boards.greenhouse.io/acme/jobs/44110?src=jobright">
+  <span>Original Job Post</span></a>
+<a href="https://www.facebook.com/sharer?u=x">Share</a>
+</body></html>"""
+
+JOBRIGHT_ATS_ONLY = """<html><body><div>Apply below</div>
+<a href="https://usaa.wd1.myworkdayjobs.com/en-US/usaajobs/job/San-Antonio/PM_R0111">Apply</a>
+</body></html>"""
+
+JOBRIGHT_SELF_REFERENTIAL = """<html><body>
+<script>{"applyUrl":"https://jobright.ai/jobs/info/6aab75e44be87a72913a46c8?utm_source=1099"}</script>
+<a href="https://jobright.ai/pricing">Upgrade</a></body></html>"""
+
+
+class _FakeResponse:
+    def __init__(self, url, text="", ok=True):
+        self.url, self.text, self.ok = url, text, ok
+
+
+class _FakeSession:
+    """Serves a canned response per URL and records what was requested."""
+
+    def __init__(self, pages):
+        self.pages, self.asked = pages, []
+        self.headers = {}
+
+    def get(self, url, **kwargs):
+        self.asked.append(url)
+        return self.pages.get(url) or _FakeResponse(url, "", ok=False)
+
+
+class TestOriginalPostLink(unittest.TestCase):
+    """jobright serves its own page; the employer's posting is behind a button."""
+
+    def test_embedded_original_url_beats_a_self_referential_apply_url(self):
+        self.assertEqual(
+            enrich.original_post_link(JOBRIGHT_NEXT_DATA),
+            "https://www.databricks.com/company/careers/product/"
+            "pm-intern-summer-2027-6883068002")
+
+    def test_the_original_job_post_button_is_read(self):
+        self.assertEqual(enrich.original_post_link(JOBRIGHT_BUTTON),
+                         "https://boards.greenhouse.io/acme/jobs/44110?src=jobright")
+
+    def test_an_ats_link_is_the_last_resort(self):
+        self.assertEqual(
+            enrich.original_post_link(JOBRIGHT_ATS_ONLY),
+            "https://usaa.wd1.myworkdayjobs.com/en-US/usaajobs/job/San-Antonio/PM_R0111")
+
+    def test_a_page_linking_only_to_itself_yields_nothing(self):
+        # Must be "", so the caller keeps the listing URL rather than
+        # substituting something wrong.
+        self.assertEqual(enrich.original_post_link(JOBRIGHT_SELF_REFERENTIAL), "")
+
+    def test_share_links_are_never_mistaken_for_the_posting(self):
+        self.assertNotIn("twitter", enrich.original_post_link(JOBRIGHT_NEXT_DATA))
+        self.assertNotIn("facebook", enrich.original_post_link(JOBRIGHT_BUTTON))
+
+    def test_json_escaped_urls_are_unescaped(self):
+        html = r'{"originalJobUrl":"https:\/\/jobs.lever.co\/acme\/1?a=1\u0026b=2"}'
+        self.assertEqual(enrich.original_post_link(html),
+                         "https://jobs.lever.co/acme/1?a=1&b=2")
+
+    def test_empty_and_barren_pages_are_safe(self):
+        self.assertEqual(enrich.original_post_link(""), "")
+        self.assertEqual(enrich.original_post_link("<html><body>hi</body></html>"), "")
+
+
+class TestFollowToOriginal(unittest.TestCase):
+    def test_reads_the_page_when_the_aggregator_does_not_redirect(self):
+        listing = "https://jobright.ai/jobs/info/6a5908d763a8f619507bfd68"
+        session = _FakeSession({listing: _FakeResponse(listing, JOBRIGHT_NEXT_DATA)})
+        self.assertTrue(
+            enrich.follow_to_original(listing, session).startswith("https://www.databricks.com"))
+
+    def test_keeps_a_redirect_that_already_landed_on_the_employer(self):
+        listing = "https://simplify.jobs/p/xyz"
+        landed = "https://boards.greenhouse.io/acme/jobs/9"
+        session = _FakeSession({listing: _FakeResponse(landed, "<html></html>")})
+        self.assertEqual(enrich.follow_to_original(listing, session), landed)
+
+    def test_returns_the_listing_when_there_is_nothing_better(self):
+        listing = "https://jobright.ai/jobs/info/6aab75e44be87a72913a46c8"
+        session = _FakeSession({listing: _FakeResponse(listing, JOBRIGHT_SELF_REFERENTIAL)})
+        self.assertEqual(enrich.follow_to_original(listing, session), listing)
+
+    def test_a_dead_link_returns_the_input_rather_than_raising(self):
+        class _Boom:
+            def get(self, url, **kwargs):
+                raise requests.RequestException("no route")
+
+        url = "https://jobright.ai/jobs/info/dead"
+        self.assertEqual(enrich.follow_to_original(url, _Boom()), url)
+
+
+class TestResolvePortalUsesTheOriginal(unittest.TestCase):
+    def test_a_jobright_listing_ends_up_pointing_at_the_employer(self):
+        listing = "https://jobright.ai/jobs/info/6a5908d763a8f619507bfd68"
+        p = Posting(job_id="x", title="PM Intern", company="Databricks",
+                    source="jobright", listing_url=listing)
+        session = _FakeSession({listing: _FakeResponse(listing, JOBRIGHT_NEXT_DATA)})
+        with mock.patch.object(enrich.requests, "Session", return_value=session):
+            enrich.resolve_portal([p], workers=1)
+        self.assertTrue(p.portal_url.startswith("https://www.databricks.com"))
+        self.assertEqual(p.listing_url, listing)  # the Title link is untouched
+
+    def test_an_unresolvable_listing_keeps_its_link(self):
+        listing = "https://jobright.ai/jobs/info/6aab75e44be87a72913a46c8"
+        p = Posting(job_id="y", title="APM Intern", company="Visa",
+                    source="jobright", listing_url=listing)
+        session = _FakeSession({listing: _FakeResponse(listing, JOBRIGHT_SELF_REFERENTIAL)})
+        with mock.patch.object(enrich.requests, "Session", return_value=session):
+            enrich.resolve_portal([p], workers=1)
+        self.assertEqual(p.portal_url, listing)
+
+
+
 if __name__ == "__main__":
     unittest.main()
+
