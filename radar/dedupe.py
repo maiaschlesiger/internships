@@ -62,7 +62,10 @@ def _merge(keep: Posting, other: Posting) -> Posting:
         if not getattr(keep, field) and getattr(other, field):
             setattr(keep, field, getattr(other, field))
     if other.source not in keep.source:
-        keep.source = f"{keep.source}, {other.source}"
+        # " + ", not ", ": Source is a Notion select, and a select option may
+        # not contain a comma. A job found in three lists is exactly the kind
+        # worth surfacing, so this must not be what stops it being written.
+        keep.source = f"{keep.source} + {other.source}"
     return keep
 
 

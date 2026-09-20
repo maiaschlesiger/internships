@@ -17,7 +17,7 @@ from radar.classify import rule_verdict  # noqa: E402
 from radar.models import Posting  # noqa: E402
 from radar.sources import internlist  # noqa: E402
 from radar.sources.jobright import parse_readme  # noqa: E402
-from radar import dedupe, enrich, jobdesc  # noqa: E402
+from radar import dedupe, enrich, jobdesc, notion_sink  # noqa: E402
 from radar.sources import ghlist  # noqa: E402
 from radar.resume import tailor as rtailor  # noqa: E402
 
@@ -791,6 +791,39 @@ class TestResolvePortalUsesTheOriginal(unittest.TestCase):
         with mock.patch.object(enrich.requests, "Session", return_value=session):
             enrich.resolve_portal([p], workers=1)
         self.assertEqual(p.portal_url, listing)
+
+
+
+class TestSelectOptionSafety(unittest.TestCase):
+    """Notion 400s on a select option containing a comma, failing the page write."""
+
+    def test_a_merged_source_list_loses_its_commas(self):
+        merged = ("intern-list:pm, dreamworkhq/Tech-Internships-2027, "
+                  "SimplifyJobs/Summer2027-Internships")
+        out = notion_sink._select(merged)
+        self.assertNotIn(",", out)
+        self.assertIn("intern-list:pm", out)
+        self.assertIn("SimplifyJobs", out)
+
+    def test_an_ordinary_value_is_untouched(self):
+        self.assertEqual(notion_sink._select("Product Management"), "Product Management")
+
+    def test_the_option_stays_within_notion_s_length_limit(self):
+        self.assertLessEqual(len(notion_sink._select("x" * 400)), 100)
+
+    def test_empty_and_none_are_safe(self):
+        self.assertEqual(notion_sink._select(""), "")
+        self.assertEqual(notion_sink._select(None), "")
+
+    def test_merging_two_sources_produces_no_comma(self):
+        a = Posting(job_id="1", title="PM Intern", company="Acme", source="jobright",
+                    location="Austin, TX")
+        b = Posting(job_id="1", title="PM Intern", company="Acme",
+                    source="SimplifyJobs/Summer2027-Internships", location="Austin, TX")
+        merged = dedupe.collapse([a, b])[0]
+        self.assertNotIn(",", merged.source)
+        self.assertIn("jobright", merged.source)
+        self.assertIn("SimplifyJobs", merged.source)
 
 
 

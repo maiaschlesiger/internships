@@ -75,6 +75,17 @@ SCHEMA = {
 }
 
 
+def _select(value: str) -> str:
+    """Make a string safe as a Notion select option.
+
+    Notion rejects a select option containing a comma, with a 400 that fails the
+    whole page write. Merged values are the ones that hit this -- a job found in
+    three source lists carries all three names -- so the listings most worth
+    having were the ones being dropped.
+    """
+    return (value or "").replace(",", " +")[:100]
+
+
 def _plain_text(chunks) -> str:
     """Flatten a Notion rich_text / title property to a plain string."""
     return "".join(c.get("plain_text", "") for c in (chunks or [])).strip()
@@ -377,11 +388,11 @@ class Notion:
             P_NOTES: rt(p.notes),
         }
         if p.category:
-            props[P_CATEGORY] = {"select": {"name": p.category[:100]}}
+            props[P_CATEGORY] = {"select": {"name": _select(p.category)}}
         if p.term:
-            props[P_TERM] = {"select": {"name": p.term[:100]}}
+            props[P_TERM] = {"select": {"name": _select(p.term)}}
         if p.source:
-            props[P_SOURCE] = {"select": {"name": p.source[:100]}}
+            props[P_SOURCE] = {"select": {"name": _select(p.source)}}
         if p.portal_url or p.listing_url:
             props[P_PORTAL] = {"url": p.portal_url or p.listing_url}
         if p.posted_at:

@@ -109,7 +109,7 @@ skills_available:
            "Adobe Photoshop", "Adobe Illustrator", "Adobe InDesign", "Miro",
            "wireframing", "prototyping", "usability testing", "information architecture",
            "user flows", "design critique",
-           "design engineering",
+           "design engineering", "human-centered design",
            # Physical fabrication, from the JSTI bridge work.
            "3D printing", "physical prototyping", "rapid prototyping"]
   Technical: ["TypeScript", "JavaScript", "React", "HTML", "CSS", "Python",
@@ -118,5 +118,10 @@ skills_available:
                     "user experience (UX) research", "data visualization",
                     "user research", "user interviews", "A/B testing",
                     "competitive analysis", "product requirements", "roadmapping",
+                    # Consulting vocabulary for work she has actually done: the SNU
+                    # pipeline is process design, and cutting cleaning time 45% is
+                    # a measured process improvement.
+                    "process design", "process improvement",
+                    "requirements gathering", "data analysis",
                     # AI tools she uses day to day.
                     "ChatGPT", "Microsoft Copilot"]
