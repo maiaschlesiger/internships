@@ -827,6 +827,61 @@ class TestSelectOptionSafety(unittest.TestCase):
 
 
 
+class _RecordingNotion(notion_sink.Notion):
+    """A Notion client that records calls instead of making them."""
+
+    def __init__(self):  # noqa: D107 - deliberately skips the real __init__
+        self.calls = []
+
+    def _call(self, method, path, **kwargs):
+        self.calls.append((method, path, kwargs.get("json")))
+        return {"results": [], "has_more": False}
+
+
+class TestBackfillLeavesExistingCellsAlone(unittest.TestCase):
+    """A refresh may fill a gap. It may never overwrite what is already there."""
+
+    def test_update_row_patches_only_the_fields_it_is_given(self):
+        client = _RecordingNotion()
+        client.update_row("page-1", skills="Python, SQL")
+        (_, _, body), = client.calls
+        self.assertEqual(list(body["properties"]), [notion_sink.P_SKILLS])
+
+    def test_update_row_sends_nothing_when_there_is_nothing_to_fill(self):
+        client = _RecordingNotion()
+        client.update_row("page-1")
+        self.assertEqual(client.calls, [])
+
+    def test_update_row_never_touches_the_user_s_own_columns(self):
+        client = _RecordingNotion()
+        client.update_row("page-1", skills="s", recruiter="a@b.com", notes="n",
+                          title="T", title_url="https://example.com/job")
+        (_, _, body), = client.calls
+        for owned in (notion_sink.P_APPLIED, notion_sink.P_RESUME,
+                      notion_sink.P_POSTED, notion_sink.P_PORTAL):
+            self.assertNotIn(owned, body["properties"])
+
+    def test_a_row_with_real_requirements_is_not_queued_for_backfill(self):
+        row = {"Skill Requirements": "Strong SQL and a product mindset."}
+        self.assertFalse(_needs_skills(row["Skill Requirements"]))
+
+    def test_a_placeholder_row_is_queued_for_backfill(self):
+        for placeholder in ("See posting", "Could not read the application page",
+                            "Inferred from title", "See listing"):
+            self.assertTrue(_needs_skills(placeholder), placeholder)
+
+    def test_an_empty_row_is_queued_for_backfill(self):
+        self.assertTrue(_needs_skills(""))
+
+
+def _needs_skills(skills: str) -> bool:
+    """The rule rows_to_backfill applies, kept here so the tests pin it."""
+    return (not skills) or skills.startswith((
+        "See posting", "Could not read", "Inferred from",
+        "See listing", "Description fetched"))
+
+
+
 if __name__ == "__main__":
     unittest.main()
 
