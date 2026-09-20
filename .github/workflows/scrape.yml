@@ -60,7 +60,9 @@ jobs:
         env:
           NOTION_TOKEN: ${{ secrets.NOTION_TOKEN }}
           NOTION_DATABASE_ID: ${{ secrets.NOTION_DATABASE_ID }}
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          # Either secret name works. The variable the code reads is fixed;
+          # what the secret is called in repo settings is not.
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY || secrets.CLAUDE_KEY }}
           APOLLO_API_KEY: ${{ secrets.APOLLO_API_KEY }}
         run: |
           ARGS=""
