@@ -157,7 +157,13 @@ apollo_max_lookups: 15
 # table healing itself as the scraping improves, without re-fetching pages that
 # never yield anything on every single tick. 0 disables it; the manual backfill
 # dispatch input ignores this cap and sweeps everything.
-backfill_per_run: 25
+#
+# Raised from 25 while there is a backlog to clear. Until the original-post fix
+# every backfill returned 0 rows, so effectively every stored row still needs
+# one good pass. At 60 a few hundred rows are healed within a day; drop it back
+# to 25 afterwards, when the only rows left are the ones whose pages genuinely
+# print nothing and re-fetching them every tick is waste.
+backfill_per_run: 60
 
 # Rows with this Applied status get a tailored resume rendered and attached.
 # Tailoring costs a model call and a render per posting, so it is opt-in per row
