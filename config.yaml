@@ -170,11 +170,14 @@ backfill_per_run: 60
 # rather than something every listing receives.
 resume_trigger_status: "Applying"
 
-# Resumes rendered per scheduled run. Mark a row Applying and it gets one within
-# the hour, without triggering anything by hand. Bounded because each costs a
-# model call, a render and an upload; the manual tailor_resumes input ignores
-# this cap. 0 disables the automatic pass.
-resume_per_run: 5
+# Resumes rendered per scheduled run. 0, because tailoring is done by hand
+# instead -- the resume-tailor skill does the same thing in a Claude session,
+# against the same base.yaml and the same validator, without an API call.
+#
+# Raise it to turn the automatic pass back on: mark a row Applying and it gets
+# a resume within the hour. Each one costs a model call, a render and an
+# upload, so it stays bounded; the manual tailor_resumes input ignores the cap.
+resume_per_run: 0
 
 # Job boards read by the model rather than by a hand-written parser. Use this
 # for a site whose markup is unknown or likely to change: the page is fetched
