@@ -29,7 +29,7 @@ from .models import Posting
 from .resume import render as resume_render
 from .resume import tailor as resume_tailor
 from .notion_sink import Notion
-from .sources import ghlist, internlist, jobright
+from .sources import ghlist, internlist, jobright, modelsite
 
 log = logging.getLogger("radar")
 
@@ -75,7 +75,24 @@ def collect(cfg: dict, bootstrap: bool) -> List[Posting]:
                 p.posted_at, p.posted_precision = now, "first_seen"
         postings.extend(found)
 
-    # Six overlapping lists advertise the same jobs, each with its own ids and
+    # Sources with no hand-written parser: the page is read by the model on the
+    # runner. Skipped silently when no key is configured, so the rest of the
+    # run is unaffected.
+    model_sources = cfg.get("model_sources") or []
+    if model_sources:
+        try:
+            found = modelsite.fetch_all(model_sources,
+                                        os.environ.get("ANTHROPIC_API_KEY", ""))
+        except Exception as exc:  # noqa: BLE001 - never let a source stop the run
+            log.error("model-read sources failed: %s", exc)
+            found = []
+        now = datetime.now(timezone.utc)
+        for p in found:
+            if p.posted_at is None:
+                p.posted_at, p.posted_precision = now, "first_seen"
+        postings.extend(found)
+
+    # Overlapping lists advertise the same jobs, each with its own ids and
     # sometimes its own redirect URLs, so collapse on the posting itself.
     by_id = list({p.job_id: p for p in postings}.values())
     unique = dedupe.collapse(by_id)

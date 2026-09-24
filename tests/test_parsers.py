@@ -15,7 +15,7 @@ import yaml  # noqa: E402
 
 from radar.classify import rule_verdict  # noqa: E402
 from radar.models import Posting  # noqa: E402
-from radar.sources import internlist  # noqa: E402
+from radar.sources import internlist, modelsite  # noqa: E402
 from radar.sources.jobright import parse_readme  # noqa: E402
 from radar import dedupe, enrich, jobdesc, notion_sink  # noqa: E402
 from radar.sources import ghlist  # noqa: E402
@@ -879,6 +879,130 @@ def _needs_skills(skills: str) -> bool:
     return (not skills) or skills.startswith((
         "See posting", "Could not read", "Inferred from",
         "See listing", "Description fetched"))
+
+
+
+APM_PAGE = """<html><head><title>Internships | APM Season</title></head><body>
+<nav><a href="/about">About</a><a href="/blogs">Blog</a></nav>
+<script>window.analytics=1;</script>
+<table>
+<tr><td>Google</td><td><a href="/jobs/g-apm-27">APM Intern, Summer 2027</a></td>
+    <td>Mountain View, CA</td><td>2d ago</td></tr>
+<tr><td>Microsoft</td><td><a href="https://careers.microsoft.com/200057344">Product Manager Intern</a></td>
+    <td>Redmond, WA</td><td>Sep 23, 2026</td></tr>
+</table>
+<footer>Subscribe to our newsletter</footer></body></html>"""
+
+
+class _FakeContent:
+    def __init__(self, text): self.text = text
+
+
+class _FakeModelReply:
+    def __init__(self, text): self.content = [_FakeContent(text)]
+
+
+class _FakeMessages:
+    def __init__(self, reply): self.reply, self.prompts = reply, []
+
+    def create(self, **kwargs):
+        self.prompts.append(kwargs["messages"][0]["content"])
+        return _FakeModelReply(self.reply)
+
+
+class _FakeClient:
+    def __init__(self, reply): self.messages = _FakeMessages(reply)
+
+
+class _PageSession:
+    def __init__(self, html): self.html, self.headers = html, {}
+
+    def get(self, url, **kwargs):
+        class _R:
+            def __init__(self, text): self.text, self.status_code = text, 200
+            def raise_for_status(self): pass
+        return _R(self.html)
+
+
+class TestModelReadSource(unittest.TestCase):
+    """A source with no hand-written parser: the model reads the page."""
+
+    def _fetch(self, reply, html=APM_PAGE):
+        client = _FakeClient(reply)
+        found = modelsite.fetch("https://www.apmseason.com/internships", "key",
+                                source_name="apmseason",
+                                session=_PageSession(html), client=client)
+        return found, client
+
+    def test_listings_become_postings(self):
+        reply = """[
+          {"title":"APM Intern, Summer 2027","company":"Google",
+           "location":"Mountain View, CA","url":"/jobs/g-apm-27",
+           "posted":"2d ago","term":"Summer 2027"},
+          {"title":"Product Manager Intern","company":"Microsoft",
+           "location":"Redmond, WA","url":"https://careers.microsoft.com/200057344",
+           "posted":"Sep 23, 2026","term":""}]"""
+        found, _ = self._fetch(reply)
+        self.assertEqual(len(found), 2)
+        self.assertEqual(found[0].company, "Google")
+        self.assertEqual(found[0].term, "Summer 2027")
+
+    def test_a_relative_url_is_resolved_against_the_page(self):
+        reply = ('[{"title":"APM Intern","company":"Google","location":"",'
+                 '"url":"/jobs/g-apm-27","posted":"","term":""}]')
+        found, _ = self._fetch(reply)
+        self.assertEqual(found[0].listing_url,
+                         "https://www.apmseason.com/jobs/g-apm-27")
+
+    def test_an_absolute_url_is_left_alone(self):
+        reply = ('[{"title":"PM Intern","company":"Microsoft","location":"",'
+                 '"url":"https://careers.microsoft.com/200057344","posted":"","term":""}]')
+        found, _ = self._fetch(reply)
+        self.assertEqual(found[0].listing_url,
+                         "https://careers.microsoft.com/200057344")
+
+    def test_rows_missing_a_company_or_title_are_dropped(self):
+        reply = ('[{"title":"","company":"Google","url":"/a"},'
+                 ' {"title":"APM Intern","company":"","url":"/b"},'
+                 ' {"title":"PM Intern","company":"Stripe","url":"/c"}]')
+        found, _ = self._fetch(reply)
+        self.assertEqual([p.company for p in found], ["Stripe"])
+
+    def test_the_page_reaches_the_model_with_its_links(self):
+        found, client = self._fetch("[]")
+        prompt = client.messages.prompts[0]
+        self.assertIn("/jobs/g-apm-27", prompt)
+        self.assertIn("Google", prompt)
+        self.assertNotIn("window.analytics", prompt)  # script stripped
+
+    def test_a_non_json_answer_yields_nothing_rather_than_raising(self):
+        found, _ = self._fetch("I could not find any listings on that page.")
+        self.assertEqual(found, [])
+
+    def test_an_empty_array_is_not_an_error(self):
+        found, _ = self._fetch("[]")
+        self.assertEqual(found, [])
+
+    def test_no_api_key_skips_the_source(self):
+        self.assertEqual(
+            modelsite.fetch("https://www.apmseason.com/internships", ""), [])
+
+    def test_ids_are_stable_across_runs(self):
+        reply = ('[{"title":"APM Intern","company":"Google","location":"",'
+                 '"url":"/jobs/g-apm-27","posted":"","term":""}]')
+        first, _ = self._fetch(reply)
+        second, _ = self._fetch(reply)
+        self.assertEqual(first[0].job_id, second[0].job_id)
+
+    def test_the_same_job_from_two_sources_collapses(self):
+        reply = ('[{"title":"Product Manager Intern","company":"Microsoft",'
+                 '"location":"Redmond, WA","url":"https://careers.microsoft.com/1",'
+                 '"posted":"","term":""}]')
+        found, _ = self._fetch(reply)
+        other = Posting(job_id="jr-999", title="Product Manager Intern",
+                        company="Microsoft", source="jobright",
+                        location="Redmond, WA")
+        self.assertEqual(len(dedupe.collapse(found + [other])), 1)
 
 
 

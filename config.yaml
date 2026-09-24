@@ -176,5 +176,16 @@ resume_trigger_status: "Applying"
 # this cap. 0 disables the automatic pass.
 resume_per_run: 5
 
+# Job boards read by the model rather than by a hand-written parser. Use this
+# for a site whose markup is unknown or likely to change: the page is fetched
+# on the runner and Claude returns the listings as rows. Costs one call per
+# source per run, and does nothing when ANTHROPIC_API_KEY is unset.
+#
+# Adding a source here needs no code. A hand-written parser is still the better
+# choice for a source whose shape is known and stable -- see radar/sources/.
+model_sources:
+  - name: "apmseason"
+    url: "https://www.apmseason.com/internships"
+
 # Set false to skip the Claude adjudication pass entirely (keyword rules only).
 use_model_for_uncertain: true

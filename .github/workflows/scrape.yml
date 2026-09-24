@@ -29,10 +29,6 @@ on:
         description: "DESTRUCTIVE: archive every existing row before scraping (rows go to Notion trash)"
         type: boolean
         default: false
-      probe_source:
-        description: "Diagnostic: print the structure of a new source to the log (URL, or blank for apmseason.com)"
-        type: string
-        default: ""
   push:
     branches: [main]
 
@@ -64,12 +60,6 @@ jobs:
 
       - name: Run tests
         run: python -m unittest discover -s tests -v
-
-      # Manual only. Reports what a candidate source actually serves, so its
-      # parser can be written from evidence rather than guessed at.
-      - name: Probe a new source
-        if: inputs.probe_source != ''
-        run: python tools/probe_source.py ${{ inputs.probe_source == 'default' && '' || inputs.probe_source }}
 
       - name: Scrape
         env:
