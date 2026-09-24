@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Runs the hiring.cafe check three times a day on this Mac.
+
+  Install:
+    cp tools/com.maia.hiringcafe.plist ~/Library/LaunchAgents/
+    launchctl load ~/Library/LaunchAgents/com.maia.hiringcafe.plist
+
+  Edit the paths below first: REPO is this repository, and the two Notion
+  values are the same ones the GitHub workflow uses.
+
+  Remove with:
+    launchctl unload ~/Library/LaunchAgents/com.maia.hiringcafe.plist
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.maia.hiringcafe</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>/usr/bin/python3</string>
+    <string>REPO/tools/local_hiringcafe.py</string>
+    <string>--to-notion</string>
+  </array>
+
+  <key>WorkingDirectory</key>
+  <string>REPO</string>
+
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>NOTION_TOKEN</key>
+    <string>YOUR_NOTION_TOKEN</string>
+    <key>NOTION_DATABASE_ID</key>
+    <string>YOUR_DATABASE_ID</string>
+  </dict>
+
+  <!-- 8am, 1pm and 7pm. Often enough to catch a posting the day it appears,
+       rare enough to be the load of a person checking the site. -->
+  <key>StartCalendarInterval</key>
+  <array>
+    <dict><key>Hour</key><integer>8</integer><key>Minute</key><integer>0</integer></dict>
+    <dict><key>Hour</key><integer>13</integer><key>Minute</key><integer>0</integer></dict>
+    <dict><key>Hour</key><integer>19</integer><key>Minute</key><integer>0</integer></dict>
+  </array>
+
+  <key>StandardOutPath</key>
+  <string>/tmp/hiringcafe.log</string>
+  <key>StandardErrorPath</key>
+  <string>/tmp/hiringcafe.err</string>
+</dict>
+</plist>
