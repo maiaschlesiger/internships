@@ -25,6 +25,10 @@ on:
         description: "Tailor and attach a resume to every row marked Applying"
         type: boolean
         default: false
+      probe_source:
+        description: "Diagnostic: print a source page's real structure to the log so a parser can be written (URL, or 'default')"
+        type: string
+        default: ""
       seed_days:
         description: "Seed a new source: widen the recency window to this many days for one run (e.g. 7). Blank = normal."
         type: string
@@ -86,6 +90,17 @@ jobs:
             case "$ANTHROPIC_API_KEY" in
               *[![:print:]]*) echo "     WARNING: contains a newline or control character. Re-paste it." ;;
             esac
+          fi
+
+      # Manual only. Prints what a candidate source actually serves, so its
+      # parser can be written from evidence. Costs nothing and calls no API.
+      - name: Probe a source
+        if: inputs.probe_source != ''
+        run: |
+          if [ "${{ inputs.probe_source }}" = "default" ]; then
+            python tools/probe_source.py
+          else
+            python tools/probe_source.py "${{ inputs.probe_source }}"
           fi
 
       - name: Scrape

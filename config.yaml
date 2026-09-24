@@ -225,4 +225,7 @@ expire_status: "Not applied"
 expire_per_run: 200
 
 # Set false to skip the Claude adjudication pass entirely (keyword rules only).
+# The pass is an accuracy improvement, not a requirement: without it the
+# keyword rules decide, which keeps more listings than it should but loses
+# none. It fails harmlessly when the account has no credit.
 use_model_for_uncertain: true
