@@ -61,6 +61,29 @@ jobs:
       - name: Run tests
         run: python -m unittest discover -s tests -v
 
+      # Says whether the key reached the runner, without printing it. A secret
+      # that is missing, misnamed, saved as an Environment secret, or pasted
+      # with a stray newline all look identical from the outside -- the run
+      # succeeds and the model-read sources quietly return nothing.
+      - name: Check the Claude key resolves
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY || secrets.CLAUDE_KEY }}
+        run: |
+          if [ -z "$ANTHROPIC_API_KEY" ]; then
+            echo "KEY: NOT SET. Neither ANTHROPIC_API_KEY nor CLAUDE_KEY resolved."
+            echo "     The model sources (apmseason, hiring.cafe) will be skipped."
+          else
+            n=${#ANTHROPIC_API_KEY}
+            case "$ANTHROPIC_API_KEY" in
+              sk-ant-*) shape="looks like an Anthropic key" ;;
+              *)        shape="DOES NOT start with sk-ant- -- wrong value pasted?" ;;
+            esac
+            echo "KEY: set, $n characters, $shape"
+            case "$ANTHROPIC_API_KEY" in
+              *[![:print:]]*) echo "     WARNING: contains a newline or control character. Re-paste it." ;;
+            esac
+          fi
+
       - name: Scrape
         env:
           NOTION_TOKEN: ${{ secrets.NOTION_TOKEN }}
