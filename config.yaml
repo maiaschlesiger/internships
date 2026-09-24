@@ -183,9 +183,29 @@ resume_per_run: 5
 #
 # Adding a source here needs no code. A hand-written parser is still the better
 # choice for a source whose shape is known and stable -- see radar/sources/.
+# Each entry costs one model call per run, so keep the list short and prefer a
+# URL that already carries the filters you want -- a pre-filtered board returns
+# a page of relevant rows rather than a page you pay to have read and discard.
 model_sources:
   - name: "apmseason"
     url: "https://www.apmseason.com/internships"
+
+  # Aggregates company career pages and applicant tracking systems (Greenhouse,
+  # Lever, Workable, Workday) rather than reposting other boards, so it surfaces
+  # smaller companies the community lists never reach. The searchState in this
+  # URL pins it to Design, Product Management and Marketing internships posted
+  # in the last two days.
+  - name: "hiringcafe"
+    url: "https://hiringcafe.com/?searchState=%7B%22commitmentTypes%22%3A%5B%22Internship%22%5D%2C%22dateFetchedPastNDays%22%3A2%2C%22departments%22%3A%5B%22Design%22%2C%22Product+Management%22%2C%22Marketing%22%5D%7D"
+
+  # Startups and small teams, where a product or design internship is rarely
+  # posted anywhere else. Uncomment to enable; both are worth a look but may
+  # gate their full listings behind a login, in which case the run will log
+  # "almost no readable content" and cost you nothing further.
+  # - name: "workatastartup"
+  #   url: "https://www.workatastartup.com/jobs?role=design"
+  # - name: "wellfound"
+  #   url: "https://wellfound.com/role/l/product-designer/internship"
 
 # Set false to skip the Claude adjudication pass entirely (keyword rules only).
 use_model_for_uncertain: true

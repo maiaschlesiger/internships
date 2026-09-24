@@ -47,6 +47,18 @@ class Posting:
     # sponsorship, programme length. Never inferred -- see jobdesc.extract_notes.
     notes: str = ""
 
+    # Lists that syndicate the same few hundred well-known postings. A listing
+    # none of them carried came from a smaller board, which is the interesting
+    # case: the roles everyone else is also applying to are the ones these
+    # lists agree on.
+    MAINSTREAM_SOURCES = ("jobright", "simplifyjobs", "vanshb03", "dreamworkhq",
+                          "intern-list")
+
+    def is_niche(self) -> bool:
+        """True when no mainstream aggregator carried this listing."""
+        found_in = self.source.lower()
+        return not any(name in found_in for name in self.MAINSTREAM_SOURCES)
+
     def keywords_cell(self) -> str:
         return ", ".join(self.resume_keywords)
 

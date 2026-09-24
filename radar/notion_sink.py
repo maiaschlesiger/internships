@@ -42,6 +42,7 @@ P_RESUME = "My Resume PDF"
 P_SOURCE = "Source"
 P_JOB_ID = "Job ID"
 P_NOTES = "Notes"
+P_NICHE = "Niche"
 P_RESUME = "My Resume PDF"
 
 APPLIED_OPTIONS = [
@@ -72,6 +73,10 @@ SCHEMA = {
     P_SOURCE: {"select": {}},
     P_JOB_ID: {"rich_text": {}},
     P_NOTES: {"rich_text": {}},
+    # Ticked when no mainstream aggregator carried this listing -- see
+    # models.Posting.is_niche. Filter the table on it for the roles the big
+    # lists never surfaced.
+    P_NICHE: {"checkbox": {}},
 }
 
 
@@ -393,6 +398,7 @@ class Notion:
             props[P_TERM] = {"select": {"name": _select(p.term)}}
         if p.source:
             props[P_SOURCE] = {"select": {"name": _select(p.source)}}
+        props[P_NICHE] = {"checkbox": p.is_niche()}
         if p.portal_url or p.listing_url:
             props[P_PORTAL] = {"url": p.portal_url or p.listing_url}
         if p.posted_at:

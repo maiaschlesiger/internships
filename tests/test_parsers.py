@@ -1006,6 +1006,36 @@ class TestModelReadSource(unittest.TestCase):
 
 
 
+class TestNicheFlag(unittest.TestCase):
+    """A listing the big aggregators never carried is the interesting one."""
+
+    def _p(self, source):
+        return Posting(job_id="x", title="PM Intern", company="Acme", source=source)
+
+    def test_a_small_board_only_listing_is_niche(self):
+        self.assertTrue(self._p("hiringcafe").is_niche())
+        self.assertTrue(self._p("apmseason").is_niche())
+        self.assertTrue(self._p("hiringcafe + apmseason").is_niche())
+
+    def test_anything_a_mainstream_list_carried_is_not_niche(self):
+        for source in ("jobright-ai/2026-Product-Management-Internship",
+                       "SimplifyJobs/Summer2027-Internships",
+                       "vanshb03/Summer2027-Internships",
+                       "dreamworkhq/Tech-Internships-2027",
+                       "intern-list:pm"):
+            self.assertFalse(self._p(source).is_niche(), source)
+
+    def test_a_merged_listing_stops_being_niche(self):
+        # Found on a small board and on jobright: everyone can see it.
+        self.assertFalse(
+            self._p("apmseason + jobright-ai/2026-Design-Internship").is_niche())
+
+    def test_the_flag_is_written_to_notion(self):
+        self.assertIn(notion_sink.P_NICHE, notion_sink.SCHEMA)
+        self.assertEqual(notion_sink.SCHEMA[notion_sink.P_NICHE], {"checkbox": {}})
+
+
+
 if __name__ == "__main__":
     unittest.main()
 
