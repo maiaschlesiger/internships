@@ -195,10 +195,17 @@ model_sources:
   - name: "apmseason"
     url: "https://www.apmseason.com/"
 
-  # hiring.cafe is not here, deliberately. It answers automated requests with
-  # 403 and a challenge page, browser headers included -- that is the site
-  # saying no, and the only ways past it are ones that exist to defeat that
-  # refusal. Use it by hand; it is a good board.
+  # hiring.cafe is not listed here because it answers a datacenter with 403,
+  # so the hourly run cannot fetch it and no header makes that untrue. It is
+  # read a different way instead: open the search you want in a browser, save
+  # the page, and run
+  #
+  #     python -m radar.main --ingest ~/Downloads/hiringcafe.html
+  #
+  # radar/sources/hiringcafe.py reads the listings out of the payload the page
+  # already carries. Per listing it is the best-described source here -- the
+  # apply URL is the employer's own ATS, the publish date is exact, and the
+  # requirements summary fills Skill Requirements without fetching anything.
 
   # Startups and small teams, where a product or design internship is rarely
   # posted anywhere else. Uncomment to enable; both are worth a look but may

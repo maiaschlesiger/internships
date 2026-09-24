@@ -15,7 +15,7 @@ import yaml  # noqa: E402
 
 from radar.classify import rule_verdict  # noqa: E402
 from radar.models import Posting  # noqa: E402
-from radar.sources import internlist, modelsite  # noqa: E402
+from radar.sources import hiringcafe, internlist, modelsite  # noqa: E402
 from radar.sources.jobright import parse_readme  # noqa: E402
 from radar import dedupe, enrich, jobdesc, notion_sink  # noqa: E402
 from radar.sources import ghlist  # noqa: E402
@@ -1138,6 +1138,58 @@ class TestExpireStale(unittest.TestCase):
     def test_a_sweep_is_bounded(self):
         client = _ExpiryNotion([_row(f"p{i}") for i in range(10)])
         self.assertEqual(client.expire_stale("db", 75, limit=3), 3)
+
+
+
+class TestHiringCafe(unittest.TestCase):
+    """Parsed from a page saved in a browser; the fixture holds real field names."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.page = (Path(__file__).resolve().parent / "fixtures"
+                    / "hiringcafe_page.html").read_text(encoding="utf-8")
+        cls.posts = hiringcafe.parse(cls.page)
+
+    def test_listings_are_found(self):
+        self.assertEqual(len(self.posts), 3)
+
+    def test_the_apply_url_is_the_employer_not_the_board(self):
+        for p in self.posts:
+            self.assertNotIn("hiringcafe", p.portal_url)
+            self.assertTrue(p.portal_url.startswith("http"))
+            self.assertEqual(p.listing_url, p.portal_url)
+
+    def test_the_publish_date_is_exact(self):
+        for p in self.posts:
+            self.assertIsNotNone(p.posted_at)
+            self.assertEqual(p.posted_precision, "exact")
+
+    def test_requirements_fill_the_skills_cell(self):
+        self.assertTrue(self.posts[0].skills)
+        self.assertGreater(len(self.posts[0].skills_cell()), 40)
+
+    def test_notes_carry_only_what_the_listing_stated(self):
+        self.assertNotIn("None", " ".join(p.notes for p in self.posts))
+
+    def test_ids_are_stable_and_namespaced(self):
+        for p in self.posts:
+            self.assertTrue(p.job_id.startswith("hc-"))
+        again = hiringcafe.parse(self.page)
+        self.assertEqual([p.job_id for p in self.posts], [p.job_id for p in again])
+
+    def test_a_page_without_the_payload_yields_nothing(self):
+        self.assertEqual(hiringcafe.parse("<html><body>nope</body></html>"), [])
+        self.assertEqual(hiringcafe.parse(""), [])
+
+    def test_a_broken_payload_does_not_raise(self):
+        self.assertEqual(
+            hiringcafe.parse('<script id="__NEXT_DATA__">{not json</script>'), [])
+
+    def test_it_collapses_against_the_same_job_from_another_source(self):
+        p = self.posts[0]
+        other = Posting(job_id="jr-1", title=p.title, company=p.company,
+                        source="jobright", location=p.location)
+        self.assertEqual(len(dedupe.collapse([p, other])), 1)
 
 
 

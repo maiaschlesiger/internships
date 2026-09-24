@@ -29,7 +29,7 @@ from .models import Posting
 from .resume import render as resume_render
 from .resume import tailor as resume_tailor
 from .notion_sink import Notion
-from .sources import ghlist, internlist, jobright, modelsite
+from .sources import ghlist, hiringcafe, internlist, jobright, modelsite
 
 log = logging.getLogger("radar")
 
@@ -284,6 +284,11 @@ def main(argv=None) -> int:
                     help="First run: reconstruct real posting times from source git history "
                          "instead of stamping everything as 'just now'.")
     ap.add_argument("--dry-run", action="store_true", help="Do everything except write to Notion.")
+    ap.add_argument("--ingest", nargs="+", metavar="FILE",
+                    help="Read listings from pages saved from a browser, for a "
+                         "board that declines requests from a server. Parsed by "
+                         "the same code that would have fetched them, then "
+                         "deduped and written like any other source.")
     ap.add_argument("--window-hours", type=int, default=0,
                     help="Override the recency window for this run only. Use it "
                          "once to seed a newly added source with the listings it "
@@ -354,6 +359,19 @@ def main(argv=None) -> int:
         Notion(token).clear(database_id)
 
     postings = collect(cfg, bootstrap=args.bootstrap)
+
+    # Pages saved by hand. A board that answers a datacenter with 403 has not
+    # refused the person reading it in their own browser, so this reads what
+    # they saved rather than pretending to be them.
+    for path in args.ingest or []:
+        try:
+            html = Path(path).read_text(encoding="utf-8", errors="replace")
+        except OSError as exc:
+            log.error("could not read %s: %s", path, exc)
+            continue
+        found = hiringcafe.parse(html)
+        log.info("ingested %d listings from %s", len(found), Path(path).name)
+        postings.extend(found)
 
     # Dedup against what is already in Notion before spending anything.
     if not args.dry_run:
