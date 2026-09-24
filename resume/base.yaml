@@ -109,7 +109,7 @@ skills_available:
            "Adobe Photoshop", "Adobe Illustrator", "Adobe InDesign", "Miro",
            "wireframing", "prototyping", "usability testing", "information architecture",
            "user flows", "design critique",
-           "design engineering", "human-centered design",
+           "design engineering", "human-centered design", "accessibility",
            # Physical fabrication, from the JSTI bridge work.
            "3D printing", "physical prototyping", "rapid prototyping"]
   Technical: ["TypeScript", "JavaScript", "React", "HTML", "CSS", "Python",
