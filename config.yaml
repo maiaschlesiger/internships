@@ -209,5 +209,18 @@ model_sources:
   # - name: "wellfound"
   #   url: "https://wellfound.com/role/l/product-designer/internship"
 
+# Rows still tagged this and older than expire_after_hours are archived at the
+# end of each run, so the table stays a list of things worth acting on rather
+# than a history. Archived, not deleted: Notion keeps a trashed page for 30
+# days. A row whose Applied tag you have changed, or that has a resume
+# attached, is never touched -- nor is one with no Posted date, since its age
+# is unknown.
+#
+# 0 disables it. expire_per_run bounds a single sweep so a misconfiguration
+# cannot empty the table in one pass.
+expire_after_hours: 75
+expire_status: "Not applied"
+expire_per_run: 200
+
 # Set false to skip the Claude adjudication pass entirely (keyword rules only).
 use_model_for_uncertain: true

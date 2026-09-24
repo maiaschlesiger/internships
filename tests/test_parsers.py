@@ -1077,6 +1077,70 @@ class TestModelSourcePostedDate(unittest.TestCase):
 
 
 
+class _ExpiryNotion(notion_sink.Notion):
+    """Records the query filter and every archive call, makes none."""
+
+    def __init__(self, rows):
+        self.rows, self.calls, self.filters = rows, [], []
+
+    def _call(self, method, path, **kwargs):
+        body = kwargs.get("json") or {}
+        if method == "POST" and path.endswith("/query"):
+            self.filters.append(body.get("filter"))
+            return {"results": self.rows, "has_more": False}
+        self.calls.append((path, body))
+        return {}
+
+
+def _row(page_id, title="PM Intern", company="Acme", resume=False):
+    props = {
+        notion_sink.P_TITLE: {"title": [{"plain_text": title}]},
+        notion_sink.P_COMPANY: {"rich_text": [{"plain_text": company}]},
+    }
+    if resume:
+        props[notion_sink.P_RESUME] = {"files": [{"name": "resume.pdf"}]}
+    return {"id": page_id, "properties": props}
+
+
+class TestExpireStale(unittest.TestCase):
+    """Sweeping old rows must never take one the user has worked on."""
+
+    def test_stale_rows_are_archived_not_deleted(self):
+        client = _ExpiryNotion([_row("p1"), _row("p2")])
+        self.assertEqual(client.expire_stale("db", 75), 2)
+        for path, body in client.calls:
+            self.assertTrue(path.startswith("/pages/"))
+            self.assertEqual(body, {"archived": True})
+
+    def test_a_row_with_a_resume_attached_is_kept(self):
+        client = _ExpiryNotion([_row("p1"), _row("p2", resume=True)])
+        self.assertEqual(client.expire_stale("db", 75), 1)
+        self.assertEqual([p for p, _ in client.calls], ["/pages/p1"])
+
+    def test_it_only_asks_for_untouched_rows_past_the_cutoff(self):
+        client = _ExpiryNotion([])
+        client.expire_stale("db", 75, status="Not applied")
+        (flt,) = client.filters
+        conditions = flt["and"]
+        self.assertEqual(conditions[0],
+                         {"property": notion_sink.P_APPLIED,
+                          "select": {"equals": "Not applied"}})
+        # A date filter, so a row with no Posted date is never returned at all.
+        self.assertIn("before", conditions[1]["date"])
+        self.assertEqual(conditions[1]["property"], notion_sink.P_POSTED)
+
+    def test_zero_hours_disables_the_sweep(self):
+        client = _ExpiryNotion([_row("p1")])
+        self.assertEqual(client.expire_stale("db", 0), 0)
+        self.assertEqual(client.calls, [])
+        self.assertEqual(client.filters, [])
+
+    def test_a_sweep_is_bounded(self):
+        client = _ExpiryNotion([_row(f"p{i}") for i in range(10)])
+        self.assertEqual(client.expire_stale("db", 75, limit=3), 3)
+
+
+
 if __name__ == "__main__":
     unittest.main()
 

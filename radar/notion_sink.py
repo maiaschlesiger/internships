@@ -9,6 +9,7 @@ common reason this module 404s on a page that plainly exists.
 from __future__ import annotations
 
 import logging
+from datetime import datetime, timedelta, timezone
 import time
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Sequence, Set, Tuple
@@ -366,6 +367,68 @@ class Notion:
         if not props:
             return
         self._call("PATCH", f"/pages/{page_id}", json={"properties": props})
+
+
+    def expire_stale(self, database_id: str, older_than_hours: int,
+                     status: str = "Not applied", limit: int = 0) -> int:
+        """Archive rows still untouched once the posting is too old to bother with.
+
+        Archived, not deleted: Notion keeps a trashed page for 30 days, so a row
+        swept by mistake is recoverable. Three things are never touched -- a row
+        whose Applied tag has been changed from ``status``, a row with a resume
+        attached, and a row with no Posted date, since its age is unknown and a
+        guess would archive something on no evidence.
+        """
+        if older_than_hours <= 0:
+            return 0
+        cutoff = datetime.now(timezone.utc) - timedelta(hours=older_than_hours)
+        body = {
+            "page_size": 100,
+            "filter": {"and": [
+                {"property": P_APPLIED, "select": {"equals": status}},
+                # Equivalent to the Hours Since Posted formula, but filtering the
+                # date directly does not depend on the formula column existing.
+                {"property": P_POSTED, "date": {"before": cutoff.isoformat()}},
+            ]},
+        }
+
+        stale, cursor = [], None
+        while True:
+            if cursor:
+                body["start_cursor"] = cursor
+            page = self._call("POST", f"/databases/{database_id}/query", json=body)
+            for row in page.get("results", []):
+                props = row.get("properties", {})
+                if props.get(P_RESUME, {}).get("files"):
+                    continue  # a tailored resume means this one mattered
+                stale.append((row["id"],
+                              _plain_text(props.get(P_TITLE, {}).get("title", [])),
+                              _plain_text(props.get(P_COMPANY, {}).get("rich_text", []))))
+            if not page.get("has_more"):
+                break
+            cursor = page.get("next_cursor")
+
+        if not stale:
+            log.info("nothing older than %dh is still %r", older_than_hours, status)
+            return 0
+        if limit and len(stale) > limit:
+            log.info("%d rows are stale; archiving %d this run", len(stale), limit)
+            stale = stale[:limit]
+
+        archived = 0
+        for page_id, title, company in stale:
+            try:
+                self._call("PATCH", f"/pages/{page_id}", json={"archived": True})
+                archived += 1
+                log.debug("archived %r at %r", title[:40], company[:24])
+            except Exception as exc:  # noqa: BLE001 - one bad row must not stop the rest
+                log.error("could not archive %r: %s", title[:40], exc)
+            time.sleep(0.2)
+
+        log.info("archived %d rows still %r and older than %dh "
+                 "(recoverable from Notion trash for 30 days)",
+                 archived, status, older_than_hours)
+        return archived
 
     def add(self, database_id: str, p: Posting) -> None:
         def rt(value: str) -> dict:

@@ -430,6 +430,16 @@ def main(argv=None) -> int:
             tailor_resumes(client, database_id, cfg, limit=resumes)
         except Exception as exc:  # noqa: BLE001 - never lose a scrape over a resume
             log.error("resume pass failed: %s", exc)
+
+    # Last, so a row is never archived in the same run that could still have
+    # filled it in or attached a resume to it.
+    try:
+        client.expire_stale(database_id,
+                            older_than_hours=cfg.get("expire_after_hours", 0),
+                            status=cfg.get("expire_status", "Not applied"),
+                            limit=cfg.get("expire_per_run", 200))
+    except Exception as exc:  # noqa: BLE001 - a failed sweep must not fail the run
+        log.error("expiry pass failed: %s", exc)
     return 0
 
 
