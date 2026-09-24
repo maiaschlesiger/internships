@@ -224,8 +224,13 @@ expire_after_hours: 75
 expire_status: "Not applied"
 expire_per_run: 200
 
-# Set false to skip the Claude adjudication pass entirely (keyword rules only).
-# The pass is an accuracy improvement, not a requirement: without it the
-# keyword rules decide, which keeps more listings than it should but loses
-# none. It fails harmlessly when the account has no credit.
-use_model_for_uncertain: true
+# The Claude adjudication pass judges the listings the keyword rules are unsure
+# about -- around 600 a run, all in one call. It is the most expensive thing
+# here by a wide margin, and it is an accuracy improvement rather than a
+# requirement: without it the rules decide, which keeps more marginal roles
+# than it should but loses none.
+#
+# Off by default so the API budget goes to resume tailoring instead, which
+# costs a fraction of a cent per resume and only runs on rows you have marked.
+# Turn it back on if the table is noisier than you want to read.
+use_model_for_uncertain: false
