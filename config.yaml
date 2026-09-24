@@ -187,8 +187,10 @@ resume_per_run: 5
 # URL that already carries the filters you want -- a pre-filtered board returns
 # a page of relevant rows rather than a page you pay to have read and discard.
 model_sources:
+  # /internships 404s. The root is where the board lists roles; replace this
+  # with the real internships URL once it is known.
   - name: "apmseason"
-    url: "https://www.apmseason.com/internships"
+    url: "https://www.apmseason.com/"
 
   # Aggregates company career pages and applicant tracking systems (Greenhouse,
   # Lever, Workable, Workday) rather than reposting other boards, so it surfaces

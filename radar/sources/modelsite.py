@@ -32,6 +32,20 @@ from ..models import Posting
 log = logging.getLogger(__name__)
 
 MODEL = "claude-sonnet-5"
+
+BROWSER_HEADERS = {
+    "User-Agent": ("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                   "AppleWebKit/537.36 (KHTML, like Gecko) "
+                   "Chrome/129.0.0.0 Safari/537.36"),
+    "Accept": ("text/html,application/xhtml+xml,application/xml;q=0.9,"
+               "image/avif,image/webp,*/*;q=0.8"),
+    "Accept-Language": "en-US,en;q=0.9",
+    "Accept-Encoding": "gzip, deflate, br",
+    "Upgrade-Insecure-Requests": "1",
+    "Sec-Fetch-Dest": "document",
+    "Sec-Fetch-Mode": "navigate",
+    "Sec-Fetch-Site": "none",
+}
 # The page is reduced before it is sent: a job board is mostly chrome, and the
 # listings are a small fraction of the bytes.
 MAX_PAGE_CHARS = 60000
@@ -191,8 +205,10 @@ def fetch(url: str, api_key: str, source_name: str = "",
         return []
 
     session = session or requests.Session()
-    session.headers.setdefault(
-        "User-Agent", "Mozilla/5.0 (compatible; internship-radar/1.0)")
+    # A self-identifying agent string gets a 403 from boards behind bot
+    # protection, which is most of them. These are the headers a browser sends;
+    # the request is the same one a person makes by opening the page.
+    session.headers.update(BROWSER_HEADERS)
     try:
         text = _page_text(url, session, timeout)
     except requests.RequestException as exc:
