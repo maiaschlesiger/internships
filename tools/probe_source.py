@@ -19,12 +19,7 @@ import sys
 
 import requests
 
-CANDIDATES = [
-    "https://hiringcafe.com/?searchState=%7B%22commitmentTypes%22%3A%5B%22Internship%22%5D%2C%22dateFetchedPastNDays%22%3A7%2C%22departments%22%3A%5B%22Design%22%2C%22Product+Management%22%2C%22Marketing%22%5D%7D",
-    "https://www.apmseason.com/",
-    "https://www.apmseason.com/jobs",
-    "https://www.apmseason.com/roles",
-]
+CANDIDATES = ["https://www.apmseason.com/"]
 
 # Keys a listing feed tends to use. Presence tells us where the data lives.
 LISTING_HINTS = ("company", "title", "role", "location", "postedat", "posteddate",
@@ -75,6 +70,68 @@ def walk_for_listings(node, depth=0, path="$"):
     return out
 
 
+
+
+def rendered(url: str) -> str:
+    """Load a page in headless Chromium and return the DOM after scripts run.
+
+    apmseason serves a 55KB shell with no links and no embedded payload: the
+    listings are fetched by JavaScript after load, so a plain GET sees nothing.
+    Chromium is already on the runner for rendering resumes.
+    """
+    import subprocess
+    import sys as _s
+    _s.path.insert(0, str(Path(__file__).resolve().parent.parent))
+    from radar.resume.render import find_chrome
+
+    chrome = find_chrome()
+    if not chrome:
+        print("  (no Chromium found; cannot render)")
+        return ""
+    try:
+        out = subprocess.run(
+            [chrome, "--headless", "--disable-gpu", "--no-sandbox",
+             "--virtual-time-budget=12000", "--dump-dom", url],
+            capture_output=True, text=True, timeout=90)
+        return out.stdout or ""
+    except (subprocess.SubprocessError, OSError) as exc:
+        print(f"  (render failed: {exc})")
+        return ""
+
+
+def describe(body: str, label: str) -> None:
+    """Print what a body contains, so a parser can be written against it."""
+    print(f"  --- {label}: {len(body)} bytes ---")
+    describe(body, "static fetch")
+    dom = rendered(url)
+    if len(dom) > len(body):
+        describe(dom, "after JavaScript")
+
+    found = embedded_json(body)
+    if found:
+        name, payload = found
+        print(f"  embedded payload: {name}")
+        if not isinstance(payload, str):
+            for path, count, sample in walk_for_listings(payload)[:4]:
+                print(f"    {path}  ({count} items)  keys: {sorted(sample)}")
+                print(f"      sample: {json.dumps(sample)[:500]}")
+    links = re.findall(r'href="(https?://[^"]+)"', body)
+    external = [l for l in links if "apmseason" not in l]
+    print(f"  {len(re.findall(r'<table', body, re.I))} tables, "
+          f"{len(re.findall(r'<tr', body, re.I))} rows, "
+          f"{len(links)} links ({len(external)} external)")
+    for sample in external[:12]:
+        print(f"    -> {sample[:120]}")
+    # Repeating class names are how a card list is usually built.
+    classes = re.findall(r'class="([^"]{4,80})"', body)
+    from collections import Counter
+    common = [f"{c} x{n}" for c, n in Counter(classes).most_common(12) if n > 2]
+    if common:
+        print("  repeated classes:")
+        for c in common:
+            print(f"    {c}")
+
+
 def probe(url: str, session: requests.Session) -> None:
     print(f"\n{'='*72}\n{url}")
     try:
@@ -101,6 +158,11 @@ def probe(url: str, session: requests.Session) -> None:
             return
         except json.JSONDecodeError:
             pass
+
+    describe(body, "static fetch")
+    dom = rendered(url)
+    if len(dom) > len(body):
+        describe(dom, "after JavaScript")
 
     found = embedded_json(body)
     if found:
