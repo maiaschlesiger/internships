@@ -25,6 +25,10 @@ on:
         description: "Tailor and attach a resume to every row marked Applying"
         type: boolean
         default: false
+      seed_days:
+        description: "Seed a new source: widen the recency window to this many days for one run (e.g. 7). Blank = normal."
+        type: string
+        default: ""
       clear_first:
         description: "DESTRUCTIVE: archive every existing row before scraping (rows go to Notion trash)"
         type: boolean
@@ -99,6 +103,9 @@ jobs:
           if [ "${{ inputs.backfill }}" = "true" ]; then ARGS="$ARGS --backfill"; fi
           if [ "${{ inputs.clear_first }}" = "true" ]; then ARGS="$ARGS --clear-database"; fi
           if [ "${{ inputs.bootstrap }}" = "true" ]; then ARGS="$ARGS --bootstrap"; fi
+          if [ -n "${{ inputs.seed_days }}" ]; then
+            ARGS="$ARGS --window-hours $(( ${{ inputs.seed_days }} * 24 ))"
+          fi
           if [ "${{ inputs.dry_run }}" = "true" ] || [ "${{ github.event_name }}" = "push" ]; then
             ARGS="$ARGS --dry-run"
           fi

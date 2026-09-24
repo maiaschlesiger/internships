@@ -21,7 +21,8 @@ import hashlib
 import json
 import logging
 import re
-from typing import Dict, List, Optional, Sequence
+from datetime import datetime, timedelta, timezone
+from typing import List, Optional, Sequence, Tuple
 from urllib.parse import urljoin, urlparse
 
 import requests
@@ -100,6 +101,48 @@ def _page_text(url: str, session: requests.Session, timeout: int) -> str:
     return text[:MAX_PAGE_CHARS]
 
 
+
+# "2d ago", "3 hours ago", "Sep 23, 2026", "2026-09-23". Boards write the age
+# of a posting every way there is, and the page is copied verbatim, so the
+# parsing happens here rather than being asked of the model.
+_REL = re.compile(r"(\d+)\s*(minute|min|hour|hr|h|day|d|week|w|month|mo)s?\b", re.I)
+_UNIT_HOURS = {"minute": 1 / 60, "min": 1 / 60, "hour": 1, "hr": 1, "h": 1,
+               "day": 24, "d": 24, "week": 168, "w": 168, "month": 720, "mo": 720}
+_DATE_FORMATS = ("%Y-%m-%d", "%b %d, %Y", "%B %d, %Y", "%d %b %Y", "%m/%d/%Y")
+
+
+def parse_posted(text: str, now: Optional[datetime] = None) -> Tuple[Optional[datetime], str]:
+    """Read a board's posted field. Returns (when, precision)."""
+    raw = (text or "").strip()
+    if not raw:
+        return None, ""
+    now = now or datetime.now(timezone.utc)
+    low = raw.lower()
+    if low in ("today", "just posted", "new"):
+        return now, "day"
+    if low == "yesterday":
+        return now - timedelta(days=1), "day"
+
+    match = _REL.search(low)
+    if match:
+        hours = int(match.group(1)) * _UNIT_HOURS[match.group(2).lower()]
+        # An age in hours is a real time of day; an age in days or longer is
+        # only good to the day, and saying otherwise overstates it.
+        precision = "relative" if hours < 24 else "day"
+        return now - timedelta(hours=hours), precision
+
+    cleaned = raw.replace("Posted", "").replace("posted", "").strip(" ·-–—")
+    for fmt in _DATE_FORMATS:
+        try:
+            return datetime.strptime(cleaned, fmt).replace(tzinfo=timezone.utc), "day"
+        except ValueError:
+            continue
+    try:
+        return datetime.fromisoformat(cleaned.replace("Z", "+00:00")), "day"
+    except ValueError:
+        return None, ""
+
+
 def stable_id(company: str, title: str, url: str) -> str:
     """A durable id, so the same listing collapses across runs and sources."""
     basis = f"{company.strip().lower()}|{title.strip().lower()}|{url.strip()}"
@@ -121,6 +164,7 @@ def rows_to_postings(rows: Sequence[dict], page_url: str,
         if url and not url.lower().startswith(("http://", "https://")):
             url = urljoin(page_url, url)
         term = (row.get("term") or "").strip()
+        when, precision = parse_posted(row.get("posted") or "")
         out.append(Posting(
             job_id=stable_id(company, title, url or page_url),
             title=title,
@@ -131,6 +175,8 @@ def rows_to_postings(rows: Sequence[dict], page_url: str,
             source=source_name,
             term=term,
             term_confidence="stated" if term else "",
+            posted_at=when,
+            posted_precision=precision,
         ))
     return out
 

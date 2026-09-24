@@ -193,10 +193,12 @@ model_sources:
   # Aggregates company career pages and applicant tracking systems (Greenhouse,
   # Lever, Workable, Workday) rather than reposting other boards, so it surfaces
   # smaller companies the community lists never reach. The searchState in this
-  # URL pins it to Design, Product Management and Marketing internships posted
-  # in the last two days.
+  # URL pins it to Design, Product Management and Marketing internships from
+  # the last seven days. Seven rather than two so a missed run never drops a
+  # listing, and so seeding has a backlog to draw on; the recency window still
+  # decides what actually reaches Notion.
   - name: "hiringcafe"
-    url: "https://hiringcafe.com/?searchState=%7B%22commitmentTypes%22%3A%5B%22Internship%22%5D%2C%22dateFetchedPastNDays%22%3A2%2C%22departments%22%3A%5B%22Design%22%2C%22Product+Management%22%2C%22Marketing%22%5D%7D"
+    url: "https://hiringcafe.com/?searchState=%7B%22commitmentTypes%22%3A%5B%22Internship%22%5D%2C%22dateFetchedPastNDays%22%3A7%2C%22departments%22%3A%5B%22Design%22%2C%22Product+Management%22%2C%22Marketing%22%5D%7D"
 
   # Startups and small teams, where a product or design internship is rarely
   # posted anywhere else. Uncomment to enable; both are worth a look but may

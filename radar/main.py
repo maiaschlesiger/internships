@@ -284,6 +284,11 @@ def main(argv=None) -> int:
                     help="First run: reconstruct real posting times from source git history "
                          "instead of stamping everything as 'just now'.")
     ap.add_argument("--dry-run", action="store_true", help="Do everything except write to Notion.")
+    ap.add_argument("--window-hours", type=int, default=0,
+                    help="Override the recency window for this run only. Use it "
+                         "once to seed a newly added source with the listings it "
+                         "is already carrying; the hourly runs stay at the "
+                         "config value.")
     ap.add_argument("--tailor-resumes", action="store_true",
                     help="For every row marked Applying that has no resume attached, "
                          "tailor the resume to that posting, render a PDF and upload it "
@@ -363,7 +368,10 @@ def main(argv=None) -> int:
                     and dedupe.fingerprint(p) not in known_prints]
         log.info("%d of %d listings are new", len(postings), before)
 
-    postings = within_window(postings, cfg.get("window_hours", 24))
+    window = args.window_hours or cfg.get("window_hours", 24)
+    if args.window_hours:
+        log.info("recency window widened to %dh for this run (seeding)", window)
+    postings = within_window(postings, window)
     if not postings:
         log.info("nothing new in the window; done")
         return 0

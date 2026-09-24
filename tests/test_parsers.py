@@ -1036,6 +1036,47 @@ class TestNicheFlag(unittest.TestCase):
 
 
 
+class TestModelSourcePostedDate(unittest.TestCase):
+    """Boards write a posting's age every way there is; all of them are copied
+    verbatim into the row, so the parsing has to happen on our side."""
+
+    NOW = datetime(2026, 9, 24, 2, 0, tzinfo=timezone.utc)
+
+    def test_relative_hours_keep_a_time_of_day(self):
+        when, precision = modelsite.parse_posted("3 hours ago", self.NOW)
+        self.assertEqual(when, datetime(2026, 9, 23, 23, 0, tzinfo=timezone.utc))
+        self.assertEqual(precision, "relative")
+
+    def test_relative_days_are_only_good_to_the_day(self):
+        when, precision = modelsite.parse_posted("2d ago", self.NOW)
+        self.assertEqual(when, datetime(2026, 9, 22, 2, 0, tzinfo=timezone.utc))
+        self.assertEqual(precision, "day")
+
+    def test_written_dates_parse(self):
+        for text in ("Sep 23, 2026", "September 23, 2026", "2026-09-23", "09/23/2026"):
+            when, _ = modelsite.parse_posted(text, self.NOW)
+            self.assertEqual(when.date(), datetime(2026, 9, 23).date(), text)
+
+    def test_today_and_yesterday(self):
+        self.assertEqual(modelsite.parse_posted("today", self.NOW)[0], self.NOW)
+        self.assertEqual(modelsite.parse_posted("yesterday", self.NOW)[0].date(),
+                         datetime(2026, 9, 23).date())
+
+    def test_nothing_usable_returns_nothing(self):
+        # Rather than a wrong timestamp: main() stamps these "first seen", which
+        # is honest about what is actually known.
+        for text in ("", "n/a", "see posting", None):
+            self.assertEqual(modelsite.parse_posted(text, self.NOW), (None, ""))
+
+    def test_the_date_reaches_the_posting(self):
+        rows = [{"title": "APM Intern", "company": "Google", "url": "/j/1",
+                 "posted": "2d ago", "term": ""}]
+        p = modelsite.rows_to_postings(rows, "https://www.apmseason.com/internships", "apmseason")[0]
+        self.assertIsNotNone(p.posted_at)
+        self.assertEqual(p.posted_precision, "day")
+
+
+
 if __name__ == "__main__":
     unittest.main()
 
